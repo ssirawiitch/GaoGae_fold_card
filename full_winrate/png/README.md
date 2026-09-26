@@ -1,19 +1,32 @@
 # PNG exports
 
 - `winrate_summary_6_players.png` — quick one-page comparison.
-- `winrate_baseline.png` — full deal-3 / 2+1 table.
-- `winrate_discard1.png` — full deal-4-discard-1 table.
-- `winrate_discard2.png` — full deal-5-discard-2 table.
-- `winrate_discard3.png` — full deal-6-discard-3 table.
-- `baseline/`, `discard1/`, `discard2/`, and `discard3/` — the same results
-  split into six shorter images: `tong`, `straight_flush`, `sian`, `straight`,
-  `flush`, and `points`.
+- `winrate_<variant>_page_01.png`, `_page_02.png`, and so on — complete tables
+  for `baseline`, `discard1`, `discard2`, and `discard3` when they require more
+  than one page.
 
-The full images are intentionally very tall. Use the category images when
-reading on screen or sending individual sections.
+Every PNG contains at most 500 data rows, keeping its height within practical
+browser screenshot limits. Page counts can change when the strength catalogue
+or simulation output changes, so they are intentionally not hard-coded here.
 
-Regenerate every PNG with:
+Rows distinguish the confirmed control suit when it affects the winner:
+**♠ > ♥ > ♦ > ♣** after category, rank, and other control comparisons are
+equal. Non-control suits that cannot affect the result may be averaged into the
+same row. This rule produces one live winner, so the displayed strict Win% is
+also showdown equity; there is no tie split.
+
+Regenerate the checked-in full tables and summary with:
 
 ```bash
 python3 export_winrate_png.py
 ```
+
+Category-only PNGs duplicate subsets of the full tables, so they are not kept
+in the project by default. Generate them temporarily when useful with:
+
+```bash
+python3 export_winrate_png.py --mode categories
+```
+
+Use `--mode all` to generate both sets. The exporter removes stale PNGs in the
+selected export scope before writing the new page set.
