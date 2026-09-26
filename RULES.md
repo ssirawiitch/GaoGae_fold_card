@@ -4,8 +4,8 @@
 >
 > This document records the rules currently used or proposed for this
 > project. Gao Gae is a folk game with substantial house-rule variation.
-> The dealing method, betting details, and treatment of an exact tie are
-> still being evaluated and must be agreed before play.
+> The main dealing method and some betting details are still being evaluated
+> and must be agreed before play.
 
 ## 1. Game overview
 
@@ -15,9 +15,16 @@
 - Players may bet or fold during the hand.
 - A player wins the pot either by making every other player fold or by
   showing the highest-ranked hand at showdown.
+- Every physical showdown has one winner. If the category, ranks, and other
+  control comparisons are equal, the suit of the control card breaks the
+  tie; the pot is not split.
 - There are no Pok Deng-style hand multipliers. The winner claims the pot.
 
-The ante, minimum and maximum bet, betting order, permitted actions, and
+This is normally played as a continuing Thai cash game without a fixed
+stack or tournament elimination: players are not limited to one starting
+bankroll for the full session. In the reference circle for this project,
+each bet is normally from 20 to 60 units. These limits are house rules and
+may differ in other circles. The ante, betting order, permitted actions, and
 number of raises have not yet been fixed for this research ruleset.
 
 ## 2. Dealing methods under evaluation
@@ -67,7 +74,7 @@ at most ten players in total.
 With one 52-card deck and no community cards, this variant can accommodate
 at most eight players in total (one player plus at most seven opponents).
 
-## 3. Card rank
+## 3. Card and suit rank
 
 For comparisons outside a straight, cards rank:
 
@@ -76,7 +83,27 @@ For comparisons outside a straight, cards rank:
 An Ace is high when comparing individual cards, pairs, and three of a kind.
 For point calculation only, an Ace is worth one point.
 
-Suits have no rank.
+When all applicable category and rank comparisons are equal, suits rank:
+
+**Spades (S) > Hearts (H) > Diamonds (D) > Clubs (C)**
+
+Only the suit of the category's **control card** is compared; suits do not
+change the category or override a rank comparison. The control cards are:
+
+- Straight or Straight Flush: the highest card of the sequence (`3` for
+  `A-2-3`, through `A` for `Q-K-A`).
+- Sian Riang (`J-Q-K`): the King.
+- A pair-type Sian or Points hand: the unpaired card (the kicker), after the
+  pair ranks have tied.
+- An unpaired Points hand: its highest-ranked card, after all three ranks
+  have tied.
+- Flush: the hand's common suit, after all three ranks have tied. Because
+  every card has that suit, it identifies the suit used for the tiebreak.
+
+For a Straight Flush, the common suit is also the suit of its sequence's
+highest card. A Three of a Kind tie cannot occur in a physical showdown
+using one standard deck, because two players cannot both hold three cards
+of the same rank.
 
 ## 4. Hand ranking
 
@@ -112,7 +139,9 @@ The allowed sequences are:
 `A-2-3`, `2-3-4`, ..., `10-J-Q`, `J-Q-K`, `Q-K-A`
 
 `A-2-3` is the lowest sequence and `Q-K-A` is the highest. Compare Straight
-Flushes by their sequence. Suits do not break a tie.
+Flushes by their sequence. If the sequences are equal, compare their common
+suits using `S > H > D > C`; equivalently, compare the suits of their
+highest sequence cards.
 
 ### 4.3 Sian
 
@@ -124,6 +153,8 @@ must not already qualify as Three of a Kind or a Straight Flush.
 - Other Sian hands contain a pair, such as `K-K-Q` or `Q-Q-J`.
 - Among pair-type Sian hands, compare the pair first and then the remaining
   card. For example, `K-K-J` beats `Q-Q-K`, and `K-K-Q` beats `K-K-J`.
+- If all ranks are equal, a Sian Riang compares the suit of its King. A
+  pair-type Sian compares the suit of its remaining card (the kicker).
 
 A suited `J-Q-K` is a Straight Flush, not Sian. `J-J-J`, `Q-Q-Q`, and
 `K-K-K` are Three of a Kind.
@@ -133,7 +164,9 @@ A suited `J-Q-K` is a Straight Flush, not Sian. `J-J-J`, `Q-Q-Q`, and
 Three consecutive cards that are not all of the same suit.
 
 The allowed sequences and their order are the same as for a Straight Flush:
-`A-2-3` is lowest and `Q-K-A` is highest. Suits do not break a tie.
+`A-2-3` is lowest and `Q-K-A` is highest. If the sequences are equal,
+compare the suits of their highest sequence cards (`3` for `A-2-3` and `A`
+for `Q-K-A`) using `S > H > D > C`.
 
 A non-flush `J-Q-K` is classified as Sian Riang rather than a regular
 Straight.
@@ -143,8 +176,8 @@ Straight.
 Three cards of the same suit that do not form a Straight Flush.
 
 Compare the cards from highest to lowest. If the highest cards tie, compare
-the second-highest cards, followed by the third-highest cards. Suits do not
-break a tie.
+the second-highest cards, followed by the third-highest cards. If all three
+ranks are equal, compare the hands' common suits using `S > H > D > C`.
 
 ### 4.6 Points (Taem)
 
@@ -176,26 +209,27 @@ same point total; it is not used to reorder the five higher hand categories.
 1. A hand containing a pair beats a hand without a pair.
 2. If both hands contain a pair, compare the rank of the pair using
    `A > K > Q > J > 10 > ... > 2`. A pair of Aces is the highest control
-   pair. If the pairs have the same rank, compare the remaining card.
+   pair. If the pairs have the same rank, compare the remaining card. If its
+   rank also ties, compare the suit of that remaining card.
 3. If neither hand contains a pair, sort each hand by card rank from highest
    to lowest and compare the cards in order: highest card, then second-highest
-   card, then third-highest card.
-4. Suits do not break a tie.
+   card, then third-highest card. If all three ranks tie, compare the suit of
+   the highest-ranked card.
+4. Every suit comparison uses `S > H > D > C`.
 
 For example, `9-9-A` beats `8-K-A`: both hands have 9 points, but the pair of
 Nines is a control pair and any control pair beats an unpaired hand.
 
-The method for resolving an exact tie after all three card ranks have been
-compared — such as splitting the pot or carrying it forward — has not yet
-been fixed for live play. Until that house rule is finalized, the research
-simulation calculates equity by splitting the pot equally among all tied
-winners.
+If two players both show `9-9-A`, compare the Aces because each Ace is the
+kicker/control card. For example, `9-9-A♠` beats `9-9-A♥`. Since the
+control card is one unique physical card, applying the suit tiebreak leaves
+one winner; there is no tied showdown or split pot.
 
 ## 6. Items still to be agreed
 
 - Which of the four dealing methods will be the main ruleset, if any.
 - When players discard in the deal-4, deal-5, and deal-6 variants.
-- The ante, betting limits, betting order, and allowed betting actions.
-- Whether an exact tie splits the pot or uses another house procedure.
+- The ante, betting order, and allowed betting actions. The reference bet
+  range is 20--60 units, but this remains configurable for other circles.
 - The minimum and maximum number of players for normal play.
 
