@@ -18,12 +18,12 @@ Gao Gae is commonly described as "pokdeng mixed with poker" — 52-card deck, no
 |---|---|---|
 | 1 | Survey of rules and variant landscape (dealing methods, hand-ranking order, payout mechanics) | - [x] Done — published as a standalone article |
 | 2 | Exact combinatorics of hand rarity under the baseline ruleset | - [x] Done |
-| 3 | Multiway equity / fold-or-call thresholds by number of opponents (2–9, where the deck permits) | - [x] Prototype done for all four non-community dealing variants; full hand table pending |
+| 3 | Final-three-card strict Win% by dealing rule and total players (3–6) | - [x] Full tables complete for all four non-community dealing variants |
 | 4 | Effect of dealing mechanic on hand strength distribution | - [x] In progress — baseline, 4-discard-1, 5-discard-2, 6-discard-3 compared below; community-card variant still open |
 | 5 | Betting game theory (bounded bet size, bluff frequency, Kuhn Poker-style reasoning) | - [ ] Planned |
 | 6 | Behavioral tells (qualitative) | - [ ] Planned |
 
-**Key design decision (from this stage of the project):** topics 3 and 4 must be combined, not treated separately. A fold threshold is only meaningful once the dealing variant is fixed, because the same nominal hand (e.g. "9 points, no pair") means something completely different depending on how many cards you got to choose from. The end goal is a single lookup table indexed by **(number of live opponents) × (dealing variant) → recommended fold/call threshold**.
+**Current-stage decision:** first measure only the chance that a known final three-card hand wins, separately for each dealing rule and 3–6 total players. Pot size and fold/call decisions are deliberately postponed. A dealing rule must still be fixed because the same nominal hand (e.g. "9 points, no pair") has a very different Win% when opponents selected three cards from 3, 4, 5, or 6 dealt cards.
 
 ### 3. Project structure
 
@@ -37,6 +37,9 @@ pip installs needed) meant to be run with `python3 <file>.py`:
 | `gaogae_sim_discard1.py` | Runner script | Equity simulation for deal-4-discard-1: every opponent is dealt 4 cards and automatically keeps their best 3. |
 | `gaogae_sim_discard2.py` | Runner script | Equity simulation for deal-5-discard-2: every opponent is dealt 5 cards and automatically keeps their best 3. |
 | `gaogae_sim_discard3.py` | Runner script | Equity simulation for deal-6-discard-3: every opponent is dealt 6 cards and automatically keeps their best 3. A 52-card deck supports at most 8 total players in this variant, so the script caps the table at 7 opponents. |
+| `gaogae_full_winrate.py` | Full-table runner | Generates every reachable final-hand strength and strict Win% for 3–6 total players under all four dealing rules. It also exhaustively verifies which strengths can survive optimal discarding. |
+| `export_winrate_png.py` | PNG exporter | Uses a locally installed Chrome/Chromium browser in headless mode to save the four colour tables as full-length PNG images. |
+| `full_winrate/` | Research output | Four CSV files, four colour-coded HTML tables, and PNG exports. Open `full_winrate/index.html`; methodology and limitations are in `full_winrate/METHODOLOGY.md`. |
 | `RULES.md` | Working rules | English-language research rules, including confirmed hand ranking and the dealing methods still under evaluation. |
 | `test_gaogae_core.py` | Automated tests | Regression tests for category order, A-A-A as the highest tong, Sian Riang, point-hand control cards, exact category counts, multiway pot shares, and deck limits. |
 | `README.md` | This file | Project scope, ruleset assumptions, findings, and file guide. |
@@ -95,10 +98,18 @@ Takeaway: the more cards a player gets to choose from, the more the entire hand-
 
 The corrected reproducible run uses 1,000,000 trials per example hand and variant (base seed `20260926`). It applies the control-card rules to equal-point hands and splits an exact tie among all tied winners. Against five opponents, the equity of `A-K-8` (9 points, no pair) is 56.94% under baseline dealing, 13.02% under deal-4-discard-1, 0.79% under deal-5-discard-2, and 0.01% under deal-6-discard-3. Full win/tie/equity columns are in `result_1M/`.
 
+**5.4 Full final-hand strict Win% tables (3–6 total players)**
+
+The full run now simulates 10,000,000 six-player rounds per dealing rule (60,000,000 final-hand observations per rule). An exact tie is **not** counted as a win, and no pot or fold decision is involved. Exhaustive enumeration shows that optimal selection leaves 741 reachable strength rows under deal-3, 593 under deal-4-discard-1, 523 under deal-5-discard-2, and 478 under deal-6-discard-3. The CSV and colour tables are in `full_winrate/`.
+
+Example — strict Win% of `A-K-8` (9 points, no pair) against five opponents / six total players: **56.56%** under baseline, **12.67%** under deal-4, **0.79%** under deal-5, and **0.01%** under deal-6. This is strict Win%, so it is slightly lower than the equity figures in section 5.3.
+
 ### 6. Open items / next steps
 
 - [x] Run the example-hand multiway equity prototype under all four non-community dealing variants
-- [ ] Extend the current 10 example hands into a complete hand-strength and fold/call lookup table
+- [x] Extend the 10 examples into full strict-Win% tables for all reachable final hands, split by dealing rule and 3–6 total players
+- [x] Increase the full-table run from 1,000,000 to 10,000,000 rounds per dealing rule
+- [ ] Use a targeted method for the 23 extremely rare deal-6 rows that still have fewer than 1,000 observations
 - [ ] Model the community-card variant (2 hole cards + 3 shared cards, pick best 2+1) — this is structurally different because hands become *correlated* across players rather than independent, and needs its own framework
 - [ ] Convert equity numbers into an actual fold/call table using real pot-odds math, given the ante (40) and bet range (20–60) described in the base ruleset
 - [ ] Finalize the still-open house rules in `RULES.md`, especially dealing choice, betting flow, and the treatment of an exact tie in live play
@@ -131,12 +142,12 @@ The corrected reproducible run uses 1,000,000 trials per example hand and varian
 |---|---|---|
 | 1 | สำรวจกติกาและรูปแบบที่พลิกแพลง (วิธีแจก, ลำดับไพ่, กลไกจ่ายเงิน) | - [x] เสร็จแล้ว — เผยแพร่เป็นบทความแยกต่างหาก |
 | 2 | คำนวณความหายากของไพ่แต่ละหมวดอย่างละเอียด ภายใต้กติกาพื้นฐาน | - [x] เสร็จแล้ว |
-| 3 | Equity แบบหลายคน / เกณฑ์หมอบ-สู้ ตามจำนวนคู่ต่อสู้ (2–9 คน เท่าที่จำนวนไพ่อนุญาต) | - [x] ทำต้นแบบครบสี่วิธีแจกที่ไม่ใช้ไพ่กลางแล้ว ตารางมือเต็มยังไม่เสร็จ |
+| 3 | Win% ของไพ่ 3 ใบสุดท้าย แยกวิธีแจกและผู้เล่นรวม 3–6 คน | - [x] ทำตารางเต็มครบสี่วิธีแจกที่ไม่ใช้ไพ่กลางแล้ว |
 | 4 | ผลของกลไกการแจกไพ่ต่อการกระจายความใหญ่ของมือ | - [x] กำลังทำ — เทียบ baseline, 4ทิ้ง1, 5ทิ้ง2, 6ทิ้ง3 ไว้ด้านล่าง ส่วนแบบไพ่กองกลางยังไม่ได้ทำ |
 | 5 | Game theory ของการเดิมพัน (ขอบเขตเดิมพันคงที่, ความถี่การบลัฟ, แนวคิดแบบ Kuhn Poker) | - [ ] ยังไม่เริ่ม |
 | 6 | การอ่านหน้าตา/พฤติกรรม (เชิงคุณภาพ) | - [ ] ยังไม่เริ่ม |
 
-**การตัดสินใจสำคัญของโปรเจกต์นี้:** หัวข้อ 3 กับ 4 ต้องทำรวมกัน แยกกันไม่ได้ เพราะเกณฑ์หมอบจะมีความหมายก็ต่อเมื่อรู้แล้วว่าเล่นกติกาแจกไพ่แบบไหน — ไพ่ชื่อเดียวกัน (เช่น "9 แต้มไม่มีคู่") มีความหมายต่างกันโดยสิ้นเชิงตามจำนวนใบที่ได้เลือก เป้าหมายสุดท้ายคือตารางเดียวที่ค้นตามแกน **(จำนวนคู่ต่อสู้ที่เหลือ) × (วิธีแจกไพ่) → เกณฑ์แนะนำหมอบ/สู้**
+**ข้อตกลงของงานรอบนี้:** วัดเฉพาะโอกาสที่ไพ่ 3 ใบสุดท้ายซึ่งเรารู้แล้วจะชนะ แยกตามวิธีแจกและจำนวนผู้เล่นรวม 3–6 คน ยังไม่นำขนาดกองกลางมาตัดสินหมอบ/สู้ อย่างไรก็ตามต้องแยกวิธีแจก เพราะไพ่ชื่อเดียวกัน (เช่น 9 แต้มไม่มีคู่) มี Win% ต่างกันมาก เมื่อคู่แข่งเลือก 3 ใบจากไพ่ที่แจก 3, 4, 5 หรือ 6 ใบ
 
 ### 3. โครงสร้างโปรเจกต์
 
@@ -149,6 +160,9 @@ The corrected reproducible run uses 1,000,000 trials per example hand and varian
 | `gaogae_sim_discard1.py` | สคริปต์รัน | จำลอง equity สำหรับกติกาแจก 4 ทิ้ง 1: คู่ต่อสู้ทุกคนถูกแจก 4 ใบ แล้วเลือกเก็บ 3 ใบที่ดีที่สุดอัตโนมัติ |
 | `gaogae_sim_discard2.py` | สคริปต์รัน | จำลอง equity สำหรับกติกาแจก 5 ทิ้ง 2: คู่ต่อสู้ทุกคนถูกแจก 5 ใบ แล้วเลือกเก็บ 3 ใบที่ดีที่สุดอัตโนมัติ |
 | `gaogae_sim_discard3.py` | สคริปต์รัน | จำลอง equity สำหรับกติกาแจก 6 ทิ้ง 3: คู่ต่อสู้ทุกคนถูกแจก 6 ใบ แล้วเลือกเก็บ 3 ใบที่ดีที่สุดอัตโนมัติ ไพ่ 52 ใบรองรับผู้เล่นรวมสูงสุด 8 คน จึงจำลองคู่ต่อสู้ได้ไม่เกิน 7 คน |
+| `gaogae_full_winrate.py` | สคริปต์ตารางเต็ม | สร้างอันดับไพ่สุดท้ายที่เกิดได้จริงทั้งหมดและ Strict Win% สำหรับผู้เล่นรวม 3–6 คน ภายใต้วิธีแจกทั้งสี่แบบ พร้อมไล่ครบทุกชุดเพื่อตรวจว่าอันดับใดสามารถเหลืออยู่หลังเลือกไพ่ดีที่สุดได้จริง |
+| `export_winrate_png.py` | สคริปต์สร้าง PNG | ใช้ Chrome/Chromium ที่ติดตั้งอยู่ในเครื่องแบบ headless เพื่อบันทึกตารางสีทั้งสี่เป็นภาพ PNG แบบเต็มตาราง |
+| `full_winrate/` | ผลการวิจัย | CSV 4 ไฟล์ ตาราง HTML ทำสี 4 ไฟล์ และภาพ PNG เปิดดูจาก `full_winrate/index.html`; วิธีคำนวณและข้อจำกัดอยู่ใน `full_winrate/METHODOLOGY.md` |
 | `RULES.md` | กติกาทดลอง | กติกาภาษาอังกฤษที่ใช้ในงานวิจัย รวมทั้งลำดับไพ่ที่ยืนยันแล้วและวิธีแจกที่ยังอยู่ระหว่างทดลอง |
 | `test_gaogae_core.py` | ชุดทดสอบ | ตรวจลำดับหมวด, AAA สูงสุด, เซียนเรียง, ตัวคุม, จำนวนมือแบบ exact, การแบ่ง equity เมื่อเสมอ และข้อจำกัดจำนวนไพ่ |
 | `README.md` | ไฟล์นี้ | ขอบเขตโปรเจกต์ สมมติฐานกติกา ผลลัพธ์ที่ได้ และคำอธิบายไฟล์ต่างๆ |
@@ -207,10 +221,18 @@ The corrected reproducible run uses 1,000,000 trials per example hand and varian
 
 ผลชุดใหม่รัน 1,000,000 รอบต่อมือและวิธีแจก โดยใช้ base seed `20260926` ใช้กติกาตัวคุมครบ และแบ่ง equity ตามจำนวนผู้ชนะที่เสมอกัน เมื่อเจอคู่ต่อสู้ 5 คน `A-K-8` (9 แต้มไม่มีคู่) มี equity 56.94% ใน baseline, 13.02% ในแจก 4 ทิ้ง 1, 0.79% ในแจก 5 ทิ้ง 2 และ 0.01% ในแจก 6 ทิ้ง 3 รายละเอียด win/tie/equity เต็มอยู่ใน `result_1M/`
 
+**5.4 ตาราง Strict Win% เต็มของไพ่ 3 ใบสุดท้าย (ผู้เล่นรวม 3–6 คน)**
+
+ผลตารางเต็มชุดล่าสุดจำลอง 10,000,000 โต๊ะ 6 คนต่อวิธีแจก หรือ 60,000,000 ตัวอย่างไพ่สุดท้ายต่อวิธี กรณีเสมอ **ไม่นับเป็นชนะ** และยังไม่เกี่ยวกับเงินกองกลางหรือการหมอบ การไล่ไพ่แบบ exact พบว่า เมื่อทุกคนเลือก 3 ใบที่ดีที่สุดแล้ว จะมีอันดับไพ่ที่เกิดได้จริง 741 แถวในแจก 3, 593 แถวในแจก 4 ทิ้ง 1, 523 แถวในแจก 5 ทิ้ง 2 และ 478 แถวในแจก 6 ทิ้ง 3 ผล CSV และตารางทำสีอยู่ใน `full_winrate/`
+
+ตัวอย่าง `A-K-8` (9 แต้มไม่มีคู่) เมื่อมีผู้เล่นรวม 6 คน มี Strict Win% เท่ากับ **56.56%** ในแจกตรง, **12.67%** ในแจก 4, **0.79%** ในแจก 5 และ **0.01%** ในแจก 6 ตัวเลขนี้ต่ำกว่า equity ในหัวข้อ 5.3 เล็กน้อย เพราะรอบนี้กรณีเสมอไม่นับเป็นชนะ
+
 ### 6. สิ่งที่ยังค้างอยู่ / ขั้นตอนถัดไป
 
 - [x] รันต้นแบบ equity ของไพ่ตัวอย่างครบทั้งสี่วิธีแจกที่ไม่ใช้ไพ่กลางแล้ว
-- [ ] ขยายจากไพ่ตัวอย่าง 10 มือเป็นตารางความแข็งและเกณฑ์หมอบ/สู้แบบเต็ม
+- [x] ขยายจากไพ่ตัวอย่าง 10 มือเป็นตาราง Strict Win% เต็ม แยกวิธีแจกและผู้เล่นรวม 3–6 คน
+- [x] เพิ่มการจำลองตารางเต็มจาก 1,000,000 เป็น 10,000,000 โต๊ะต่อวิธีแจก
+- [ ] ใช้วิธีจำลองแบบเจาะจงสำหรับ 23 แถวที่หายากมากในกติกาแจก 6 ซึ่งยังพบต่ำกว่า 1,000 ครั้ง
 - [ ] สร้างโมเดลกติกาแบบไพ่กองกลาง (2 ใบส่วนตัว + 3 ใบกลาง เลือกดีที่สุด 2+1) — โครงสร้างต่างออกไปเพราะไพ่แต่ละคน**สัมพันธ์กัน**ไม่เป็นอิสระเหมือนกติกาอื่น ต้องมีกรอบคิดแยกต่างหาก
 - [ ] แปลงตัวเลข equity เป็นตารางหมอบ/สู้จริง โดยใช้ pot odds กับกองกลาง (40) และช่วงเดิมพัน (20–60) ตามกติกาฐาน
 - [ ] สรุปกติกาที่ยังเปิดอยู่ใน `RULES.md` โดยเฉพาะวิธีแจก ลำดับเดิมพัน และวิธีจัดการกรณีเสมอสนิทในการเล่นจริง

@@ -1,3 +1,4 @@
+import math
 import unittest
 from collections import Counter
 from itertools import combinations
@@ -8,6 +9,13 @@ from gaogae_core import (
     classify,
     showdown_share,
     simulate_equity,
+)
+from gaogae_full_winrate import (
+    best_strength,
+    build_strength_catalog,
+    exact_final_strength_counts,
+    simulate_variant,
+    strength_label,
 )
 
 
@@ -102,6 +110,35 @@ class EquityTests(unittest.TestCase):
         )
         self.assertEqual(effective_max, 7)
         self.assertEqual(max(results), 7)
+
+
+class FullWinRateTableTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.strengths, cls.details, cls.lookup = build_strength_catalog()
+
+    def test_strength_catalog_has_741_ordered_rows(self):
+        self.assertEqual(len(self.strengths), 741)
+        self.assertEqual(self.strengths, sorted(self.strengths, reverse=True))
+        self.assertEqual(strength_label((6, 14)), 'Tong A-A-A')
+        self.assertEqual(strength_label((4, 0, 13, 12)),
+                         'Sian pair K, kicker Q')
+
+    def test_exact_deal_four_reachable_strength_count(self):
+        counts = exact_final_strength_counts(4, self.lookup)
+        self.assertEqual(len(counts), 593)
+        self.assertEqual(sum(counts.values()), math.comb(52, 4))
+
+    def test_strict_win_rate_never_increases_with_more_players(self):
+        samples, win_sums = simulate_variant(
+            deal_size=3,
+            rounds=100,
+            seed=123,
+            strength_by_mask=self.lookup,
+        )
+        for strength, count in samples.items():
+            rates = [value / count for value in win_sums[strength]]
+            self.assertEqual(rates, sorted(rates, reverse=True))
 
 
 if __name__ == '__main__':
