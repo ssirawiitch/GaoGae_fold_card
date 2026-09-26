@@ -19,6 +19,8 @@ chosen -- rules vary by house/region, this is one fixed, documented set):
   - Ace counts as 1 point only (never 10/11) in the Tam (point) category
   - Within Tam: point total (0-9) is compared first; for equal points,
     a pair ("kum"/คุม) beats no pair, then pair/card ranks break ties
+  - If all category/rank/control comparisons are equal, the suit of the
+    control card decides: Spades > Hearts > Diamonds > Clubs
 
 This file is imported by gaogae_sim_baseline.py / gaogae_sim_discard1.py /
 gaogae_sim_discard2.py / gaogae_sim_discard3.py -- it is not meant to be
@@ -32,6 +34,8 @@ from itertools import combinations
 ORDER = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K']
 SUITS = ['S', 'H', 'D', 'C']
 SUIT_SYMBOL = {'S': '\u2660', 'H': '\u2665', 'D': '\u2666', 'C': '\u2663'}
+SUIT_HIGH_VAL = {'C': 1, 'D': 2, 'H': 3, 'S': 4}
+SUIT_FROM_HIGH_VAL = {value: suit for suit, value in SUIT_HIGH_VAL.items()}
 RANK_HIGH_VAL = {'A': 14, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7,
                   '8': 8, '9': 9, '10': 10, 'J': 11, 'Q': 12, 'K': 13}
 COURT = {'J', 'Q', 'K'}
@@ -58,6 +62,12 @@ for _i in range(len(ORDER) - 2):
     _STRAIGHT_SEQS.append(frozenset(ORDER[_i:_i + 3]))
 _STRAIGHT_SEQS.append(frozenset(['Q', 'K', 'A']))  # ace-high wrap
 STRAIGHT_SEQ_INDEX = {s: i for i, s in enumerate(_STRAIGHT_SEQS)}
+STRAIGHT_CONTROL_RANK = {
+    sequence: ('3' if sequence == frozenset(['A', '2', '3'])
+               else 'A' if sequence == frozenset(['Q', 'K', 'A'])
+               else max(sequence, key=RANK_HIGH_VAL.__getitem__))
+    for sequence in _STRAIGHT_SEQS
+}
 
 
 def point_value(rank):
@@ -113,20 +123,23 @@ def _classify_cached(hand):
         return (6, RANK_HIGH_VAL[ranks[0]])
 
     if is_straight and is_flush:
-        return (5, STRAIGHT_SEQ_INDEX[fr])
+        control_rank = STRAIGHT_CONTROL_RANK[fr]
+        return (5, STRAIGHT_SEQ_INDEX[fr], _suit_value_of_rank(hand, control_rank))
 
     if is_all_court:
         if fr == frozenset(['J', 'Q', 'K']):
-            return (4, 1, 0, 0)  # Sian Riang - top sub-rank within Sian
+            return (4, 1, 0, 0, _suit_value_of_rank(hand, 'K'))
         pair_rank, kicker = _pair_and_kicker(ranks)
-        return (4, 0, RANK_HIGH_VAL[pair_rank], RANK_HIGH_VAL[kicker])
+        return (4, 0, RANK_HIGH_VAL[pair_rank], RANK_HIGH_VAL[kicker],
+                _suit_value_of_rank(hand, kicker))
 
     if is_straight:
-        return (3, STRAIGHT_SEQ_INDEX[fr])
+        control_rank = STRAIGHT_CONTROL_RANK[fr]
+        return (3, STRAIGHT_SEQ_INDEX[fr], _suit_value_of_rank(hand, control_rank))
 
     if is_flush:
         sr = sorted([RANK_HIGH_VAL[r] for r in ranks], reverse=True)
-        return (2, sr[0], sr[1], sr[2])
+        return (2, sr[0], sr[1], sr[2], SUIT_HIGH_VAL[hand[0][1]])
 
     # Tam (point total): compare points first, then control cards ("kum").
     # A pair beats no pair. Within either group, compare physical card ranks
@@ -134,9 +147,19 @@ def _classify_cached(hand):
     pts = sum(point_value(r) for r in ranks) % 10
     if len(rankset) == 2:
         pair_rank, kicker = _pair_and_kicker(ranks)
-        return (1, pts, 1, RANK_HIGH_VAL[pair_rank], RANK_HIGH_VAL[kicker])
+        return (1, pts, 1, RANK_HIGH_VAL[pair_rank], RANK_HIGH_VAL[kicker],
+                _suit_value_of_rank(hand, kicker))
     high_cards = sorted((RANK_HIGH_VAL[r] for r in ranks), reverse=True)
-    return (1, pts, 0, *high_cards)
+    control_rank = max(rankset, key=RANK_HIGH_VAL.__getitem__)
+    return (1, pts, 0, *high_cards, _suit_value_of_rank(hand, control_rank))
+
+
+def _suit_value_of_rank(hand, rank):
+    """Return suit strength for the unique card of ``rank`` in ``hand``."""
+    matches = [SUIT_HIGH_VAL[suit] for card_rank, suit in hand if card_rank == rank]
+    if len(matches) != 1:
+        raise ValueError(f'Control rank {rank!r} is not unique in hand')
+    return matches[0]
 
 
 def _pair_and_kicker(ranks):
@@ -164,19 +187,18 @@ def best_subset(cards, k=3):
 
 
 def showdown_share(my_cat, opponent_cats):
-    """Return (outcome, pot_share) against a completed set of opponents.
+    """Return (outcome, pot_share) against completed physical hands.
 
-    ``outcome`` is ``'win'``, ``'tie'``, or ``'loss'``. Exact top-ranked
-    ties split the pot equally among all tied winners, so a three-way tie
-    returns a share of 1/3 rather than the old fixed 1/2 approximation.
+    The control-suit rule guarantees one winner among disjoint hands. Equal
+    strength here therefore signals overlapping cards or an incomplete
+    comparator and is treated as an error rather than a split pot.
     """
     best_opp = max(opponent_cats)
     if my_cat > best_opp:
         return 'win', 1.0
     if my_cat < best_opp:
         return 'loss', 0.0
-    tied_opponents = sum(cat == my_cat for cat in opponent_cats)
-    return 'tie', 1.0 / (tied_opponents + 1)
+    raise ValueError('A physical Gao Gae showdown cannot end in an exact tie')
 
 
 def simulate_equity(my_hand, opponent_deal_size, max_opponents=9, trials=60000, seed=None):
@@ -192,10 +214,13 @@ def simulate_equity(my_hand, opponent_deal_size, max_opponents=9, trials=60000, 
         5 = deal 5, discard 2
         6 = deal 6, discard 3
 
-    Modeling assumption: my_hand is a fixed, already-selected final hand.
-    In discard variants, the identities of your extra dealt-and-discarded
-    cards are unknown to this benchmark and are marginalized over the
-    undealt cards. Opponents still select their best 3 cards optimally.
+    Modeling assumption: my_hand is a fixed three-card benchmark while each
+    opponent selects optimally. In discard variants, unobserved extra hero
+    cards are averaged without conditioning on my_hand remaining the hero's
+    best subset. Therefore this legacy example-hand helper is not equivalent
+    to the symmetric final-strength conditioning in gaogae_full_winrate.py;
+    use the full tables for the research question "given my selected final
+    hand, how often does it win?".
 
     Deck-size constraint: the hero and every opponent receive the same
     number of cards. For a large opponent_deal_size (e.g. 6), the number of
@@ -239,21 +264,18 @@ def simulate_equity(my_hand, opponent_deal_size, max_opponents=9, trials=60000, 
             opp_cats.append(best_subset(block, 3))
 
         higher_seen = False
-        tied_opponents = 0
         for n, opp_cat in enumerate(opp_cats, start=1):
             if opp_cat > my_cat:
                 higher_seen = True
             elif opp_cat == my_cat:
-                tied_opponents += 1
+                raise AssertionError(
+                    'Disjoint physical hands received equal comparison strength'
+                )
 
             if n < 2 or higher_seen:
                 continue
-            if tied_opponents:
-                ties[n] += 1
-                equity_sums[n] += 1.0 / (tied_opponents + 1)
-            else:
-                wins[n] += 1
-                equity_sums[n] += 1.0
+            wins[n] += 1
+            equity_sums[n] += 1.0
 
     results = {}
     for n in range(2, effective_max + 1):
@@ -357,7 +379,9 @@ def print_and_save_table(variant_name, opponent_deal_size, csv_path,
     if all_rows:
         fieldnames = list(all_rows[0].keys())
         with open(csv_path, 'w', newline='', encoding='utf-8-sig') as f:
-            writer = csv_module.DictWriter(f, fieldnames=fieldnames)
+            writer = csv_module.DictWriter(
+                f, fieldnames=fieldnames, lineterminator='\n'
+            )
             writer.writeheader()
             writer.writerows(all_rows)
         print(f"\nDetailed results saved to: {csv_path}")

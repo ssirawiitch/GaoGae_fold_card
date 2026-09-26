@@ -1,4 +1,4 @@
-"""Render the generated Gao Gae HTML win-rate tables as full-length PNGs.
+"""Render the generated Gao Gae HTML win-rate tables as paginated PNGs.
 
 This uses an installed Chrome/Chromium browser in headless mode, so the PNG
 looks the same as the colour-coded HTML table and no plotting package is
@@ -8,8 +8,11 @@ Run after ``gaogae_full_winrate.py``:
 
     python3 export_winrate_png.py
 
-By default it writes four full-length images, category-sized images, and one
-quick comparison image to ``full_winrate/png/``.
+By default it writes paginated full-table images and one quick comparison
+image to ``full_winrate/png/``. Category-only images remain available through
+``--mode categories`` but are omitted by default because they duplicate rows
+already present in the full tables. Tables longer than 500 rows are split to
+stay below browser screenshot-height limits.
 """
 
 import argparse
@@ -57,6 +60,9 @@ STATIC_BROWSER_CANDIDATES = (
     '/usr/bin/chromium',
     '/usr/bin/chromium-browser',
 )
+MAX_ROWS_PER_PAGE = 500
+TABLE_ROW_HEIGHT = 34
+TABLE_EXTRA_HEIGHT = 230
 
 
 def find_browser(explicit=None):
@@ -146,6 +152,50 @@ def read_csv_rows(path):
     return rows
 
 
+def row_pages(rows, page_size=MAX_ROWS_PER_PAGE):
+    """Return consecutive, non-empty table pages of at most ``page_size``."""
+    if page_size < 1 or page_size > MAX_ROWS_PER_PAGE:
+        raise ValueError(
+            f'page_size must be between 1 and {MAX_ROWS_PER_PAGE}'
+        )
+    return [rows[start:start + page_size]
+            for start in range(0, len(rows), page_size)]
+
+
+def paged_path(base_path, page_number, page_count):
+    """Keep the legacy filename for one page; suffix multi-page outputs."""
+    if page_count == 1:
+        return base_path
+    digits = max(2, len(str(page_count)))
+    return base_path.with_name(
+        f'{base_path.stem}_page_{page_number:0{digits}d}{base_path.suffix}'
+    )
+
+
+def clean_stale_pngs(output_dir, mode):
+    """Remove PNGs replaced by the selected export mode."""
+    stale = set()
+    if mode == 'all':
+        stale.update(output_dir.rglob('*.png'))
+    elif mode == 'full':
+        stale.add(output_dir / 'winrate_summary_6_players.png')
+        for variant, _label in VARIANTS:
+            stale.update(output_dir.glob(f'winrate_{variant}*.png'))
+    elif mode == 'categories':
+        stale.add(output_dir / 'winrate_summary_6_players.png')
+        for variant, _label in VARIANTS:
+            variant_dir = output_dir / variant
+            if variant_dir.is_dir():
+                stale.update(variant_dir.glob('*.png'))
+
+    removed = 0
+    for path in stale:
+        if path.is_file():
+            path.unlink()
+            removed += 1
+    return removed
+
+
 def render_png(browser, html_path, png_path, profile_path, width, height):
     png_path.parent.mkdir(parents=True, exist_ok=True)
     command = [
@@ -174,6 +224,32 @@ def render_png(browser, html_path, png_path, profile_path, width, height):
         )
 
 
+def render_table_pages(browser, rows, title, rounds, seed, source_path,
+                       source_stem, png_base_path, profile_path, width):
+    """Write and render a table in screenshot-safe pages."""
+    pages = row_pages(rows)
+    if not pages:
+        raise ValueError(f'Cannot render an empty table: {title}')
+
+    written = []
+    page_count = len(pages)
+    for page_number, page_rows in enumerate(pages, start=1):
+        page_title = title
+        if page_count > 1:
+            page_title += f' — Page {page_number} of {page_count}'
+        html_base = source_path / f'{source_stem}.html'
+        html_path = paged_path(html_base, page_number, page_count)
+        png_path = paged_path(png_base_path, page_number, page_count)
+        write_html(html_path, page_rows, page_title, rounds, seed)
+        height = TABLE_EXTRA_HEIGHT + TABLE_ROW_HEIGHT * (len(page_rows) + 1)
+        render_png(
+            browser, html_path, png_path, profile_path,
+            width=width, height=height,
+        )
+        written.append(png_path)
+    return written
+
+
 def write_summary_html(path, all_rows):
     """Write a compact comparison of representative hands for six players."""
     lookup = {
@@ -186,17 +262,35 @@ def write_summary_html(path, all_rows):
     body = []
     for hand in SUMMARY_HANDS:
         cells = []
+        displayed_hand = hand
         for key, _label in VARIANTS:
             row = lookup[key].get(hand)
             if row is None:
+                # Suit-control tables append the controlling suit to the old
+                # rank-only labels. Select the spade-controlled representative
+                # explicitly rather than depending on CSV row order.
+                candidates = [
+                    candidate for candidate in all_rows[key]
+                    if candidate['hand'].startswith(hand)
+                ]
+                row = next(
+                    (candidate for candidate in candidates
+                     if candidate['hand'].endswith('♠')),
+                    candidates[0] if candidates else None,
+                )
+            if row is None:
                 cells.append('<td class="missing">N/A</td>')
                 continue
+            if displayed_hand == hand:
+                displayed_hand = row['hand']
             value = float(row['win_6_players_pct'])
             cells.append(
                 f'<td class="pct" style="background:{heat_color(value)}">'
                 f'{value:.2f}%</td>'
             )
-        body.append(f'<tr><td>{html.escape(hand)}</td>{"".join(cells)}</tr>')
+        body.append(
+            f'<tr><td>{html.escape(displayed_hand)}</td>{"".join(cells)}</tr>'
+        )
 
     document = f'''<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -212,7 +306,8 @@ td.pct {{ text-align: right; font-weight: 700; font-variant-numeric: tabular-num
 td.missing {{ background:#e5e7eb; text-align:center; }}
 </style></head><body>
 <h1>Gao Gae strict Win% — quick comparison</h1>
-<p>Six total players. Exact ties do not count as wins. Full tables include 3–6 players.</p>
+<p>Six total players. Control suits resolve otherwise equal hands. Full tables
+include 3–6 players.</p>
 <table><thead><tr><th>Final hand</th>{header}</tr></thead>
 <tbody>{''.join(body)}</tbody></table></body></html>'''
     path.write_text(document, encoding='utf-8')
@@ -229,9 +324,9 @@ def parse_args():
     parser.add_argument('--browser', help='Chrome/Chromium executable path')
     parser.add_argument('--width', type=int, default=1400,
                         help='PNG width in pixels (default 1400)')
-    parser.add_argument('--mode', choices=('all', 'full', 'categories'), default='all',
+    parser.add_argument('--mode', choices=('all', 'full', 'categories'), default='full',
                         help='Export all images, only full tables, or category/summary '
-                             'images (default all)')
+                             'images (default full tables + summary)')
     return parser.parse_args()
 
 
@@ -239,35 +334,54 @@ def main():
     args = parse_args()
     input_dir = Path(args.input_dir).resolve()
     output_dir = Path(args.output_dir).resolve()
-    browser = find_browser(args.browser)
     profile_path = output_dir / '.chrome-png-profile'
     source_path = output_dir / '.png-source'
     all_rows = {}
 
+    for variant, _short_name in VARIANTS:
+        html_path = input_dir / f'winrate_{variant}.html'
+        csv_path = input_dir / f'winrate_{variant}.csv'
+        if not html_path.is_file() or not csv_path.is_file():
+            raise FileNotFoundError(
+                f'Missing {html_path.name} or {csv_path.name}; '
+                'run gaogae_full_winrate.py first.'
+            )
+        all_rows[variant] = read_csv_rows(csv_path)
+
+    browser = find_browser(args.browser)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    if profile_path.exists():
+        shutil.rmtree(profile_path)
+    if source_path.exists():
+        shutil.rmtree(source_path)
+    removed = clean_stale_pngs(output_dir, args.mode)
+    if removed:
+        print(f'removed {removed} stale PNG files', flush=True)
+
     try:
         for variant, _short_name in VARIANTS:
-            html_path = input_dir / f'winrate_{variant}.html'
-            csv_path = input_dir / f'winrate_{variant}.csv'
-            if not html_path.is_file() or not csv_path.is_file():
-                raise FileNotFoundError(
-                    f'Missing {html_path.name} or {csv_path.name}; '
-                    'run gaogae_full_winrate.py first.'
-                )
-            rows = read_csv_rows(csv_path)
-            all_rows[variant] = rows
+            rows = all_rows[variant]
+            rounds = int(rows[0]['rounds'])
+            seed = int(rows[0]['seed'])
 
             if args.mode in ('all', 'full'):
-                # Current HTML rows are approximately 34 px high. Extra space
-                # covers margins, title, explanatory note, and table header.
-                height = 230 + 34 * (len(rows) + 1)
-                png_path = output_dir / f'winrate_{variant}.png'
-                print(f'{variant}: {len(rows)} rows -> '
-                      f'{args.width}x{height}px', flush=True)
-                render_png(
-                    browser, html_path, png_path, profile_path,
-                    width=args.width, height=height,
+                page_count = len(row_pages(rows))
+                print(f'{variant}: {len(rows)} rows -> {page_count} full-table '
+                      f'PNG page(s)', flush=True)
+                written = render_table_pages(
+                    browser=browser,
+                    rows=rows,
+                    title=f'{rows[0]["variant_name"]} — Full table',
+                    rounds=rounds,
+                    seed=seed,
+                    source_path=source_path,
+                    source_stem=f'winrate_{variant}',
+                    png_base_path=output_dir / f'winrate_{variant}.png',
+                    profile_path=profile_path,
+                    width=args.width,
                 )
-                print(f'  wrote {png_path}', flush=True)
+                for png_path in written:
+                    print(f'  wrote {png_path}', flush=True)
 
             if args.mode in ('all', 'categories'):
                 grouped = defaultdict(list)
@@ -275,26 +389,26 @@ def main():
                     grouped[row['category']].append(row)
                 for category, category_rows in grouped.items():
                     slug = CATEGORY_SLUG[category]
-                    category_html = source_path / f'{variant}_{slug}.html'
-                    category_html.parent.mkdir(parents=True, exist_ok=True)
                     title = f'{rows[0]["variant_name"]} — {category}'
-                    write_html(
-                        category_html,
-                        category_rows,
-                        title,
-                        int(rows[0]['rounds']),
-                        int(rows[0]['seed']),
+                    written = render_table_pages(
+                        browser=browser,
+                        rows=category_rows,
+                        title=title,
+                        rounds=rounds,
+                        seed=seed,
+                        source_path=source_path,
+                        source_stem=f'{variant}_{slug}',
+                        png_base_path=output_dir / variant / f'{slug}.png',
+                        profile_path=profile_path,
+                        width=args.width,
                     )
-                    height = 230 + 34 * (len(category_rows) + 1)
-                    png_path = output_dir / variant / f'{slug}.png'
-                    render_png(
-                        browser, category_html, png_path, profile_path,
-                        width=args.width, height=height,
-                    )
-                print(f'  wrote {len(grouped)} category images to '
+                    if len(written) > 1:
+                        print(f'  {category}: {len(category_rows)} rows -> '
+                              f'{len(written)} PNG pages', flush=True)
+                print(f'  wrote {len(grouped)} category table set(s) to '
                       f'{output_dir / variant}', flush=True)
 
-        if args.mode in ('all', 'categories'):
+        if args.mode in ('all', 'full', 'categories'):
             summary_html = source_path / 'summary.html'
             source_path.mkdir(parents=True, exist_ok=True)
             write_summary_html(summary_html, all_rows)

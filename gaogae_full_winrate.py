@@ -5,8 +5,9 @@ best three cards allowed by the selected deal rule.  For each resulting hand
 strength, it estimates the probability of beating 2, 3, 4, or 5 randomly
 selected opponents (3--6 total players).
 
-Only an outright win is counted as a win.  An exact tie is not a win and no
-pot/equity calculation is used in this research stage.
+Only an outright win is counted.  The confirmed control-suit rule
+(Spades > Hearts > Diamonds > Clubs) makes an exact tie impossible between
+physical hands that can coexist at showdown.
 
 Outputs, for each deal rule:
   * a CSV with one row per distinct final-hand strength; and
@@ -25,7 +26,15 @@ from collections import Counter, defaultdict
 from itertools import combinations
 from pathlib import Path
 
-from gaogae_core import CATEGORY_NAME, ORDER, RANK_HIGH_VAL, build_deck, classify
+from gaogae_core import (
+    CATEGORY_NAME,
+    ORDER,
+    RANK_HIGH_VAL,
+    SUIT_FROM_HIGH_VAL,
+    SUIT_SYMBOL,
+    build_deck,
+    classify,
+)
 
 
 VARIANTS = (
@@ -38,6 +47,12 @@ VARIANTS = (
 TOTAL_PLAYERS = (3, 4, 5, 6)
 MAX_OPPONENTS = max(TOTAL_PLAYERS) - 1
 BASE_SEED = 20260926
+EXPECTED_REACHABLE_STRENGTHS = {
+    3: 2925,
+    4: 2323,
+    5: 2049,
+    6: 1857,
+}
 
 
 def build_strength_catalog():
@@ -78,6 +93,10 @@ def _straight_name(index):
     return '-'.join(sequences[index])
 
 
+def _suit_symbol(value):
+    return SUIT_SYMBOL[SUIT_FROM_HIGH_VAL[value]]
+
+
 def strength_label(strength):
     """Create a compact, human-readable label for a classify() tuple."""
     category = strength[0]
@@ -85,23 +104,28 @@ def strength_label(strength):
         rank = _rank_name(strength[1])
         return f'Tong {rank}-{rank}-{rank}'
     if category == 5:
-        return f'Straight flush {_straight_name(strength[1])}'
+        return f'Straight flush {_straight_name(strength[1])} {_suit_symbol(strength[2])}'
     if category == 4:
         if strength[1] == 1:
-            return 'Sian J-Q-K'
-        return f'Sian pair {_rank_name(strength[2])}, kicker {_rank_name(strength[3])}'
+            return f'Sian J-Q-K, control K{_suit_symbol(strength[4])}'
+        return (f'Sian pair {_rank_name(strength[2])}, '
+                f'kicker {_rank_name(strength[3])}{_suit_symbol(strength[4])}')
     if category == 3:
-        return f'Straight {_straight_name(strength[1])}'
+        sequence = _straight_name(strength[1])
+        control_rank = 'A' if sequence == 'Q-K-A' else sequence.split('-')[-1]
+        return (f'Straight {sequence}, control '
+                f'{control_rank}{_suit_symbol(strength[2])}')
     if category == 2:
-        ranks = '-'.join(_rank_name(value) for value in strength[1:])
-        return f'Flush {ranks}'
+        ranks = '-'.join(_rank_name(value) for value in strength[1:4])
+        return f'Flush {ranks} {_suit_symbol(strength[4])}'
 
     points = strength[1]
     if strength[2] == 1:
         return (f'{points} points, pair {_rank_name(strength[3])}, '
-                f'kicker {_rank_name(strength[4])}')
-    ranks = '-'.join(_rank_name(value) for value in strength[3:])
-    return f'{points} points, {ranks}'
+                f'kicker {_rank_name(strength[4])}{_suit_symbol(strength[5])}')
+    ranks = '-'.join(_rank_name(value) for value in strength[3:6])
+    return (f'{points} points, {ranks}, control '
+            f'{_rank_name(strength[3])}{_suit_symbol(strength[6])}')
 
 
 def best_strength(card_indexes, deal_size, strength_by_mask):
@@ -123,9 +147,7 @@ def exact_final_strength_counts(deal_size, strength_by_mask):
     """Count every possible dealt hand by the strength of its best three.
 
     Besides supplying an exact final-hand frequency, this tells us which of
-    the 741 direct three-card strengths can actually survive optimal discards.
-    For example, exhaustive enumeration gives 593 reachable strengths when
-    dealt four cards, 523 when dealt five, and 478 when dealt six.
+    the direct three-card strengths can actually survive optimal discards.
     """
     counts = Counter()
     for card_indexes in combinations(range(52), deal_size):
@@ -224,7 +246,9 @@ def result_rows(strengths, details, sample_counts, win_sums, rounds,
 def write_csv(path, rows):
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open('w', newline='', encoding='utf-8-sig') as output:
-        writer = csv.DictWriter(output, fieldnames=list(rows[0]))
+        writer = csv.DictWriter(
+            output, fieldnames=list(rows[0]), lineterminator='\n'
+        )
         writer.writeheader()
         writer.writerows(rows)
 
@@ -287,8 +311,9 @@ def write_html(path, rows, variant_name, rounds, seed):
 <body>
 <h1>{html.escape(variant_name)}</h1>
 <p class="note">Strict Win% after every player has selected their final three cards.
-An exact tie is not counted as a win. Simulated {rounds:,} six-player rounds
-(seed {seed}), reusing each deal to estimate tables of 3–6 total players.
+The control-card suit (♠ &gt; ♥ &gt; ♦ &gt; ♣) resolves otherwise equal hands,
+so every physical showdown has one winner. Simulated {rounds:,} six-player
+rounds (seed {seed}), reusing each deal to estimate tables of 3–6 total players.
 Only final strengths that can actually remain after optimal discarding are shown.
 Rows with fewer than 1,000 observed final hands have an orange marker and
 should be treated as preliminary.</p>
@@ -318,7 +343,7 @@ margin: 40px auto; padding: 0 20px; color: #172033; }} li {{ margin: 10px 0; }}<
 <p>Choose a dealing rule. Each table shows strict Win% for 3–6 total players.</p>
 <ul>{links}</ul>
 <p><a href="png/winrate_summary_6_players.png">Quick comparison PNG (6 players)</a><br>
-<a href="png/README.md">All full-table and category PNG files</a></p>
+<a href="png/README.md">Full-table PNG files and export options</a></p>
 <p><a href="METHODOLOGY.md">Methodology, definitions, and limitations</a></p>
 </body></html>'''
     path.write_text(document, encoding='utf-8')
@@ -358,6 +383,18 @@ def main():
         print(f'\n{name}: {args.rounds:,} rounds (seed={variant_seed})', flush=True)
         print('  enumerating exact reachable final strengths...', flush=True)
         exact_counts = exact_final_strength_counts(deal_size, strength_by_mask)
+        expected_strengths = EXPECTED_REACHABLE_STRENGTHS[deal_size]
+        if len(exact_counts) != expected_strengths:
+            raise RuntimeError(
+                f'Exact catalog check failed for deal size {deal_size}: '
+                f'expected {expected_strengths} strengths, got {len(exact_counts)}'
+            )
+        expected_deals = math.comb(52, deal_size)
+        if sum(exact_counts.values()) != expected_deals:
+            raise RuntimeError(
+                f'Exact deal-count check failed for deal size {deal_size}: '
+                f'expected {expected_deals}, got {sum(exact_counts.values())}'
+            )
         print(f'  {len(exact_counts)}/{len(strengths)} strengths are reachable', flush=True)
         sample_counts, win_sums = simulate_variant(
             deal_size, args.rounds, variant_seed, strength_by_mask,

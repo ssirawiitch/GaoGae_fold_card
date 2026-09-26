@@ -1,10 +1,11 @@
 import math
 import unittest
-from collections import Counter
+from collections import Counter, defaultdict
 from itertools import combinations
 
 from gaogae_core import (
     CATEGORY_NAME,
+    best_subset,
     build_deck,
     classify,
     showdown_share,
@@ -73,6 +74,85 @@ class HandRankingTests(unittest.TestCase):
         self.assertGreater(classify(ace_king_high), classify(ace_queen_high))
         self.assertGreater(classify(ace_queen_high), classify(king_high))
 
+    def test_control_card_suit_breaks_equal_rank_tie(self):
+        ace_spade = [('9', 'S'), ('9', 'H'), ('A', 'S')]
+        ace_heart = [('9', 'D'), ('9', 'C'), ('A', 'H')]
+        ace_diamond = [('9', 'S'), ('9', 'C'), ('A', 'D')]
+        ace_club = [('9', 'H'), ('9', 'D'), ('A', 'C')]
+        ordered = [ace_spade, ace_heart, ace_diamond, ace_club]
+        self.assertEqual([classify(hand)[1] for hand in ordered], [9] * 4)
+        self.assertEqual(
+            [classify(hand)[-1] for hand in ordered],
+            [4, 3, 2, 1],
+        )
+        for higher, lower in zip(ordered, ordered[1:]):
+            self.assertGreater(classify(higher), classify(lower))
+
+    def test_ace_two_three_uses_three_as_suit_control(self):
+        three_spade = [('A', 'C'), ('2', 'D'), ('3', 'S')]
+        three_heart = [('A', 'D'), ('2', 'C'), ('3', 'H')]
+        self.assertGreater(classify(three_spade), classify(three_heart))
+
+    def test_queen_king_ace_uses_ace_as_suit_control(self):
+        ace_spade = [('Q', 'H'), ('K', 'D'), ('A', 'S')]
+        ace_heart = [('Q', 'D'), ('K', 'C'), ('A', 'H')]
+        self.assertGreater(classify(ace_spade), classify(ace_heart))
+
+    def test_sian_uses_king_or_kicker_as_suit_control(self):
+        jqk_king_spade = [('J', 'C'), ('Q', 'D'), ('K', 'S')]
+        jqk_king_heart = [('J', 'D'), ('Q', 'C'), ('K', 'H')]
+        self.assertGreater(classify(jqk_king_spade), classify(jqk_king_heart))
+
+        pair_k_kicker_spade = [('K', 'H'), ('K', 'D'), ('J', 'S')]
+        pair_k_kicker_heart = [('K', 'S'), ('K', 'C'), ('J', 'H')]
+        self.assertGreater(
+            classify(pair_k_kicker_spade),
+            classify(pair_k_kicker_heart),
+        )
+
+    def test_flush_categories_use_their_control_suit(self):
+        straight_flush_spades = [('7', 'S'), ('8', 'S'), ('9', 'S')]
+        straight_flush_hearts = [('7', 'H'), ('8', 'H'), ('9', 'H')]
+        self.assertGreater(
+            classify(straight_flush_spades),
+            classify(straight_flush_hearts),
+        )
+
+        flush_spades = [('A', 'S'), ('9', 'S'), ('4', 'S')]
+        flush_hearts = [('A', 'H'), ('9', 'H'), ('4', 'H')]
+        self.assertGreater(classify(flush_spades), classify(flush_hearts))
+
+    def test_unpaired_points_use_highest_card_suit_only(self):
+        ace_heart = [('A', 'H'), ('K', 'C'), ('8', 'D')]
+        ace_diamond_with_king_spade = [('A', 'D'), ('K', 'S'), ('8', 'C')]
+        self.assertGreater(
+            classify(ace_heart),
+            classify(ace_diamond_with_king_spade),
+        )
+
+    def test_rank_priority_precedes_control_suit(self):
+        higher_straight_club = [('8', 'H'), ('9', 'D'), ('10', 'C')]
+        lower_straight_spade = [('7', 'C'), ('8', 'D'), ('9', 'S')]
+        self.assertGreater(
+            classify(higher_straight_club),
+            classify(lower_straight_spade),
+        )
+
+    def test_best_subset_uses_control_suit(self):
+        cards = [('9', 'C'), ('9', 'D'), ('A', 'S'), ('A', 'H')]
+        expected = classify([('9', 'C'), ('9', 'D'), ('A', 'S')])
+        self.assertEqual(best_subset(cards), expected)
+
+    def test_disjoint_physical_hands_never_have_equal_strength(self):
+        groups = defaultdict(list)
+        deck = build_deck()
+        for indexes in combinations(range(len(deck)), 3):
+            hand = tuple(deck[index] for index in indexes)
+            groups[classify(hand)].append(frozenset(indexes))
+        for hands in groups.values():
+            for first, second in combinations(hands, 2):
+                self.assertFalse(first.isdisjoint(second))
+
     def test_exact_baseline_category_counts(self):
         counts = Counter(
             CATEGORY_NAME[classify(hand)[0]]
@@ -92,12 +172,19 @@ class HandRankingTests(unittest.TestCase):
 
 
 class EquityTests(unittest.TestCase):
-    def test_showdown_share_splits_multiway_ties(self):
-        mine = (1, 9, 0, 14, 13, 8)
-        lower = (1, 8, 1, 14, 7)
-        self.assertEqual(showdown_share(mine, [lower, lower]), ('win', 1.0))
-        self.assertEqual(showdown_share(mine, [mine, lower]), ('tie', 0.5))
-        self.assertEqual(showdown_share(mine, [mine, mine]), ('tie', 1 / 3))
+    def test_showdown_share_has_one_winner_for_physical_hands(self):
+        mine = classify([('9', 'S'), ('9', 'H'), ('A', 'S')])
+        lower_same_ranks = classify([('9', 'D'), ('9', 'C'), ('A', 'H')])
+        lower_points = classify([('8', 'S'), ('K', 'H'), ('A', 'D')])
+        self.assertEqual(
+            showdown_share(mine, [lower_same_ranks, lower_points]),
+            ('win', 1.0),
+        )
+
+    def test_showdown_share_rejects_equal_comparison_keys(self):
+        strength = classify([('9', 'S'), ('9', 'H'), ('A', 'S')])
+        with self.assertRaises(ValueError):
+            showdown_share(strength, [strength])
 
     def test_deal_six_caps_at_seven_opponents(self):
         hand = [('3', 'S'), ('3', 'H'), ('3', 'D')]
@@ -117,16 +204,16 @@ class FullWinRateTableTests(unittest.TestCase):
     def setUpClass(cls):
         cls.strengths, cls.details, cls.lookup = build_strength_catalog()
 
-    def test_strength_catalog_has_741_ordered_rows(self):
-        self.assertEqual(len(self.strengths), 741)
+    def test_strength_catalog_has_2925_ordered_rows(self):
+        self.assertEqual(len(self.strengths), 2925)
         self.assertEqual(self.strengths, sorted(self.strengths, reverse=True))
         self.assertEqual(strength_label((6, 14)), 'Tong A-A-A')
-        self.assertEqual(strength_label((4, 0, 13, 12)),
-                         'Sian pair K, kicker Q')
+        self.assertEqual(strength_label((4, 0, 13, 12, 4)),
+                         'Sian pair K, kicker Q♠')
 
     def test_exact_deal_four_reachable_strength_count(self):
         counts = exact_final_strength_counts(4, self.lookup)
-        self.assertEqual(len(counts), 593)
+        self.assertEqual(len(counts), 2323)
         self.assertEqual(sum(counts.values()), math.comb(52, 4))
 
     def test_strict_win_rate_never_increases_with_more_players(self):
