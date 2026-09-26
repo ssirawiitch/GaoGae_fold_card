@@ -18,7 +18,7 @@ Gao Gae is commonly described as "pokdeng mixed with poker" — 52-card deck, no
 |---|---|---|
 | 1 | Survey of rules and variant landscape (dealing methods, hand-ranking order, payout mechanics) | - [x] Done — published as a standalone article |
 | 2 | Exact combinatorics of hand rarity under the baseline ruleset | - [x] Done |
-| 3 | Multiway equity / fold-or-call thresholds by number of opponents (2–9) | - [x] Prototype done for baseline dealing; full table pending |
+| 3 | Multiway equity / fold-or-call thresholds by number of opponents (2–9, where the deck permits) | - [x] Prototype done for all four non-community dealing variants; full hand table pending |
 | 4 | Effect of dealing mechanic on hand strength distribution | - [x] In progress — baseline, 4-discard-1, 5-discard-2, 6-discard-3 compared below; community-card variant still open |
 | 5 | Betting game theory (bounded bet size, bluff frequency, Kuhn Poker-style reasoning) | - [ ] Planned |
 | 6 | Behavioral tells (qualitative) | - [ ] Planned |
@@ -36,10 +36,12 @@ pip installs needed) meant to be run with `python3 <file>.py`:
 | `gaogae_sim_baseline.py` | Runner script | Equity simulation for the baseline dealing variant (deal 3 direct, or 2+1 — same final-hand distribution either way, since there's no discard). Opponents get 3 random cards each with no choice. |
 | `gaogae_sim_discard1.py` | Runner script | Equity simulation for deal-4-discard-1: every opponent is dealt 4 cards and automatically keeps their best 3. |
 | `gaogae_sim_discard2.py` | Runner script | Equity simulation for deal-5-discard-2: every opponent is dealt 5 cards and automatically keeps their best 3. |
-| `gaogae_sim_discard3.py` | Runner script | Equity simulation for deal-6-discard-3: every opponent is dealt 6 cards and automatically keeps their best 3. Note: with 6 cards/opponent, the deck can't physically supply more than 8 opponents (49 // 6), so this script auto-caps and prints a notice instead of silently producing wrong results. |
+| `gaogae_sim_discard3.py` | Runner script | Equity simulation for deal-6-discard-3: every opponent is dealt 6 cards and automatically keeps their best 3. A 52-card deck supports at most 8 total players in this variant, so the script caps the table at 7 opponents. |
+| `RULES.md` | Working rules | English-language research rules, including confirmed hand ranking and the dealing methods still under evaluation. |
+| `test_gaogae_core.py` | Automated tests | Regression tests for category order, A-A-A as the highest tong, Sian Riang, point-hand control cards, exact category counts, multiway pot shares, and deck limits. |
 | `README.md` | This file | Project scope, ruleset assumptions, findings, and file guide. |
 
-Each runner script prints an equity table to the terminal (win/tie/equity % for every hand in `EXAMPLE_HANDS`, against 2 up to 9 opponents) and also writes a `gaogae_equity_<variant>.csv` with the same data broken out into separate win/tie/equity columns, for further analysis. All four runners accept `--trials N` (simulation precision vs. speed trade-off, default 60,000) and `--max-opponents N` (default 9).
+Each runner script prints an equity table to the terminal (win/tie/equity % for every hand in `EXAMPLE_HANDS`, against 2 up to 9 opponents where physically possible) and writes a `gaogae_equity_<variant>.csv`. All runners accept `--trials N`, `--max-opponents N`, `--seed N`, `--workers N`, and `--output PATH`. The CSV records its variant, trial count, deal size, and per-hand seed so a run can be reproduced.
 
 To add your own hand: edit the `EXAMPLE_HANDS` dictionary near the bottom of `gaogae_core.py` — every runner script picks up the change automatically since they all import from the same place.
 
@@ -48,11 +50,14 @@ To add your own hand: edit the `EXAMPLE_HANDS` dictionary near the bottom of `ga
 Because house rules vary, every number in this document assumes one fixed ruleset (stated explicitly per the project's own working principle — always disclose which variant a number belongs to):
 
 - Hand ranking, high to low: **ตอง (three of a kind) > สเตรทฟลัช (straight flush) > เซียน (three court cards J/Q/K) > เรียง (straight) > สี (flush) > แต้ม (point total 0–9)**
+- A-A-A is the highest three of a kind, followed by K-K-K down to 2-2-2
 - J-Q-K non-flush ("เซียนเรียง") is a special top sub-rank within เซียน, above any pair-type เซียน (e.g. J-K-K)
 - Within เซียน pair-type hands: higher pair rank wins (K > Q > J), then kicker
 - Straights include both A-2-3 (ace low) and Q-K-A (ace high); 12 total 3-card sequences
 - A counts as 1 point only (never 10/11) for the แต้ม category
-- Within แต้ม: point total (0–9) is compared first; if tied, a pair ("คุม") wins; if pairs tie, higher pair rank wins
+- Points are considered only after confirming that a hand is not in any of the five higher categories
+- Within แต้ม: compare point total first; for equal points, any pair ("คุม") beats no pair, pairs rank A > K > Q > J > 10 > ... > 2 and then use the kicker, while unpaired hands compare all cards from highest to lowest
+- For simulation equity, an exact top-ranked tie is split equally among all tied winners
 - No table-stakes conventions beyond a pot-based payout (winner takes the pot; no per-hand multiplier bonus, unlike the related game Pokdeng)
 
 Change any of these and the numbers below shift — that's expected and is exactly why topic 1 (rule survey) matters.
@@ -84,18 +89,19 @@ Note: สเตรทฟลัช is mathematically rarer than ตอง (48 vs 
 | แต้ม (no combo) | 90.71% | 70.51% | 43.70% | 20.24% |
 | avg. point value *within* แต้ม-only hands | 4.49 | 7.40 | 8.39 | 8.76 |
 
-Takeaway: the more cards a player gets to choose from, the more the entire hand-strength distribution shifts upward — for *everyone at the table*, not just you. A "9 points, no pair" hand is a near-lock winner under the baseline deal but only a middling hand under deal-6-discard-3, since more than half the table will land a straight, flush, or better. Any equity/fold-threshold table computed under one dealing variant will give wrong advice under another.
+Takeaway: the more cards a player gets to choose from, the more the entire hand-strength distribution shifts upward — for *everyone at the table*, not just you. A strong 9-point hand under the baseline deal becomes very weak under deal-6-discard-3, since more than half the table will land a straight, flush, or better. Any equity/fold-threshold table computed under one dealing variant will give wrong advice under another.
 
-**4.3 Multiway equity (baseline dealing variant only, example hands)**
+**5.3 Multiway equity across dealing variants (example hands)**
 
-Prototype Monte Carlo simulation showing win/tie probability ("equity") for a fixed hand against N random opponents (N = 2–9), baseline dealing only. Full write-up and chart produced earlier in this research thread; not reproduced here in full. Headline pattern: strong categories (เซียน, เรียง) stay above ~88% equity even against 9 opponents; แต้ม-only hands fall off sharply as opponent count rises, and fall off *faster* when they have no pair even at equal point totals — confirming the "คุม" tie-break rule has real practical weight, not just tie-breaking value.
+The corrected reproducible run uses 1,000,000 trials per example hand and variant (base seed `20260926`). It applies the control-card rules to equal-point hands and splits an exact tie among all tied winners. Against five opponents, the equity of `A-K-8` (9 points, no pair) is 56.94% under baseline dealing, 13.02% under deal-4-discard-1, 0.79% under deal-5-discard-2, and 0.01% under deal-6-discard-3. Full win/tie/equity columns are in `result_1M/`.
 
 ### 6. Open items / next steps
 
-- [ ] Extend the multiway equity simulation to run under each dealing variant separately (not just baseline) — opponents' hands must be generated through the same discard process, not treated as raw random 3-card draws
+- [x] Run the example-hand multiway equity prototype under all four non-community dealing variants
+- [ ] Extend the current 10 example hands into a complete hand-strength and fold/call lookup table
 - [ ] Model the community-card variant (2 hole cards + 3 shared cards, pick best 2+1) — this is structurally different because hands become *correlated* across players rather than independent, and needs its own framework
 - [ ] Convert equity numbers into an actual fold/call table using real pot-odds math, given the ante (40) and bet range (20–60) described in the base ruleset
-- [ ] Cross-check the assumed ruleset (esp. hand-ranking order and A-high vs A-low tong convention) against a real playing group, since multiple conflicting house rules were found during the rules survey
+- [ ] Finalize the still-open house rules in `RULES.md`, especially dealing choice, betting flow, and the treatment of an exact tie in live play
 - [ ] Basic bluffing/betting game theory pass, using Kuhn Poker as a simplified theoretical analogue
 
 ### 7. Sources consulted (rules survey)
@@ -125,7 +131,7 @@ Prototype Monte Carlo simulation showing win/tie probability ("equity") for a fi
 |---|---|---|
 | 1 | สำรวจกติกาและรูปแบบที่พลิกแพลง (วิธีแจก, ลำดับไพ่, กลไกจ่ายเงิน) | - [x] เสร็จแล้ว — เผยแพร่เป็นบทความแยกต่างหาก |
 | 2 | คำนวณความหายากของไพ่แต่ละหมวดอย่างละเอียด ภายใต้กติกาพื้นฐาน | - [x] เสร็จแล้ว |
-| 3 | Equity แบบหลายคน / เกณฑ์หมอบ-สู้ ตามจำนวนคู่ต่อสู้ (2–9 คน) | - [x] ทำต้นแบบสำหรับการแจกไพ่พื้นฐานแล้ว ตารางเต็มยังไม่เสร็จ |
+| 3 | Equity แบบหลายคน / เกณฑ์หมอบ-สู้ ตามจำนวนคู่ต่อสู้ (2–9 คน เท่าที่จำนวนไพ่อนุญาต) | - [x] ทำต้นแบบครบสี่วิธีแจกที่ไม่ใช้ไพ่กลางแล้ว ตารางมือเต็มยังไม่เสร็จ |
 | 4 | ผลของกลไกการแจกไพ่ต่อการกระจายความใหญ่ของมือ | - [x] กำลังทำ — เทียบ baseline, 4ทิ้ง1, 5ทิ้ง2, 6ทิ้ง3 ไว้ด้านล่าง ส่วนแบบไพ่กองกลางยังไม่ได้ทำ |
 | 5 | Game theory ของการเดิมพัน (ขอบเขตเดิมพันคงที่, ความถี่การบลัฟ, แนวคิดแบบ Kuhn Poker) | - [ ] ยังไม่เริ่ม |
 | 6 | การอ่านหน้าตา/พฤติกรรม (เชิงคุณภาพ) | - [ ] ยังไม่เริ่ม |
@@ -142,10 +148,12 @@ Prototype Monte Carlo simulation showing win/tie probability ("equity") for a fi
 | `gaogae_sim_baseline.py` | สคริปต์รัน | จำลอง equity สำหรับกติกาแจกพื้นฐาน (แจก 3 ตรง หรือ 2+1 — สองแบบให้ผลการกระจายมือสุดท้ายเหมือนกันเป๊ะ เพราะไม่มีการทิ้งไพ่เลย) คู่ต่อสู้ได้ไพ่สุ่ม 3 ใบตรงๆ ไม่มีทางเลือก |
 | `gaogae_sim_discard1.py` | สคริปต์รัน | จำลอง equity สำหรับกติกาแจก 4 ทิ้ง 1: คู่ต่อสู้ทุกคนถูกแจก 4 ใบ แล้วเลือกเก็บ 3 ใบที่ดีที่สุดอัตโนมัติ |
 | `gaogae_sim_discard2.py` | สคริปต์รัน | จำลอง equity สำหรับกติกาแจก 5 ทิ้ง 2: คู่ต่อสู้ทุกคนถูกแจก 5 ใบ แล้วเลือกเก็บ 3 ใบที่ดีที่สุดอัตโนมัติ |
-| `gaogae_sim_discard3.py` | สคริปต์รัน | จำลอง equity สำหรับกติกาแจก 6 ทิ้ง 3: คู่ต่อสู้ทุกคนถูกแจก 6 ใบ แล้วเลือกเก็บ 3 ใบที่ดีที่สุดอัตโนมัติ หมายเหตุ: พอแจกคนละ 6 ใบ ไพ่ในสำรับจะไม่พอสำหรับคู่ต่อสู้เกิน 8 คน (49 // 6) สคริปต์นี้จะลดจำนวนอัตโนมัติและแจ้งเตือน แทนที่จะให้ผลลัพธ์ผิดแบบเงียบๆ |
+| `gaogae_sim_discard3.py` | สคริปต์รัน | จำลอง equity สำหรับกติกาแจก 6 ทิ้ง 3: คู่ต่อสู้ทุกคนถูกแจก 6 ใบ แล้วเลือกเก็บ 3 ใบที่ดีที่สุดอัตโนมัติ ไพ่ 52 ใบรองรับผู้เล่นรวมสูงสุด 8 คน จึงจำลองคู่ต่อสู้ได้ไม่เกิน 7 คน |
+| `RULES.md` | กติกาทดลอง | กติกาภาษาอังกฤษที่ใช้ในงานวิจัย รวมทั้งลำดับไพ่ที่ยืนยันแล้วและวิธีแจกที่ยังอยู่ระหว่างทดลอง |
+| `test_gaogae_core.py` | ชุดทดสอบ | ตรวจลำดับหมวด, AAA สูงสุด, เซียนเรียง, ตัวคุม, จำนวนมือแบบ exact, การแบ่ง equity เมื่อเสมอ และข้อจำกัดจำนวนไพ่ |
 | `README.md` | ไฟล์นี้ | ขอบเขตโปรเจกต์ สมมติฐานกติกา ผลลัพธ์ที่ได้ และคำอธิบายไฟล์ต่างๆ |
 
-แต่ละสคริปต์รันแล้วจะพิมพ์ตาราง equity ออกทางหน้าจอ (win/tie/equity % ของทุกมือใน `EXAMPLE_HANDS` เทียบกับคู่ต่อสู้ 2-9 คน) และเซฟไฟล์ `gaogae_equity_<variant>.csv` ที่มีข้อมูลเดียวกันแยกคอลัมน์ win/tie/equity ไว้ให้ต่อยอดวิเคราะห์ได้ ทุกสคริปต์รับ `--trials N` (ปรับความแม่นยำ vs ความเร็ว, default 60,000) และ `--max-opponents N` (default 9)
+แต่ละสคริปต์จะพิมพ์ตาราง equity ของทุกมือใน `EXAMPLE_HANDS` และเซฟ `gaogae_equity_<variant>.csv` รองรับ `--trials N`, `--max-opponents N`, `--seed N`, `--workers N` และ `--output PATH` ภายใน CSV บันทึกวิธีแจก จำนวนรอบ และ seed ของแต่ละมือไว้ให้รันซ้ำได้
 
 ถ้าอยากเพิ่มไพ่ของตัวเอง แก้ไข dictionary `EXAMPLE_HANDS` ใกล้ท้ายไฟล์ `gaogae_core.py` ได้เลย ทุกสคริปต์จะเห็นการเปลี่ยนแปลงอัตโนมัติ เพราะ import จากไฟล์เดียวกันหมด
 
@@ -154,11 +162,14 @@ Prototype Monte Carlo simulation showing win/tie probability ("equity") for a fi
 เนื่องจากกติกาแต่ละวงไม่เหมือนกัน ตัวเลขทุกตัวในเอกสารนี้อ้างอิงกติกาชุดเดียวที่กำหนดไว้ชัดเจน (ตามหลักการทำงานของโปรเจกต์นี้ — ต้องระบุเสมอว่าตัวเลขอิงกติกาแบบไหน):
 
 - ลำดับไพ่จากใหญ่ไปเล็ก: **ตอง > สเตรทฟลัช > เซียน (J/Q/K สามใบ) > เรียง > สี > แต้ม (0–9)**
+- ตอง A-A-A ใหญ่ที่สุด ตามด้วย K-K-K ไล่ลงไปถึง 2-2-2
 - J-Q-K ไม่ติดสี ("เซียนเรียง") เป็นระดับสูงสุดพิเศษภายในหมวดเซียน ใหญ่กว่าเซียนแบบมีคู่ (เช่น J-K-K)
 - ภายในเซียนแบบมีคู่: คู่อันดับสูงกว่าชนะ (K > Q > J) แล้วจึงดูไพ่เดี่ยวที่เหลือ
 - ไพ่เรียงนับทั้ง A-2-3 (เอซต่ำ) และ Q-K-A (เอซสูง) รวม 12 ชุด
 - A นับ 1 แต้มเท่านั้น (ไม่นับ 10/11) สำหรับหมวดแต้ม
-- ภายในหมวดแต้ม: เทียบแต้มรวม (0–9) ก่อน ถ้าเท่ากันคู่ ("คุม") ชนะ ถ้าคู่เท่ากันดูอันดับคู่ที่สูงกว่า
+- จะนับแต้มต่อเมื่อมือไม่เข้าห้าหมวดที่สูงกว่าเท่านั้น
+- ภายในหมวดแต้ม: เทียบแต้มรวมก่อน ถ้าเท่ากันมือมีคู่ ("คุม") ชนะมือไม่มีคู่ คู่เรียง A > K > Q > J > 10 > ... > 2 แล้วดูไพ่ใบที่เหลือ ส่วนมือไม่มีคู่ให้ไล่เทียบไพ่จากสูงไปต่ำ
+- ในการคำนวณ equity ถ้าเสมอกันสูงสุดหลายคนจะแบ่งกองตามจำนวนผู้ชนะที่เสมอกัน
 - ไม่มีระบบจ่ายพิเศษอื่นนอกจากกองกลาง (ผู้ชนะกวาดกองไปทั้งหมด ไม่มีโบนัสทวีคูณแบบป๊อกเด้ง)
 
 ถ้าเปลี่ยนข้อไหนในนี้ ตัวเลขด้านล่างจะเปลี่ยนตาม — เป็นเรื่องที่คาดไว้แล้ว และเป็นเหตุผลที่หัวข้อ 1 (สำรวจกติกา) สำคัญ
@@ -190,18 +201,19 @@ Prototype Monte Carlo simulation showing win/tie probability ("equity") for a fi
 | แต้ม (ไม่ติดคอมโบ) | 90.71% | 70.51% | 43.70% | 20.24% |
 | แต้มเฉลี่ย เฉพาะกลุ่มแต้มล้วน | 4.49 | 7.40 | 8.39 | 8.76 |
 
-สรุป: ยิ่งได้เลือกไพ่จากใบที่มากขึ้น การกระจายความใหญ่ของมือทั้งกระดาน**ขยับขึ้นสำหรับทุกคนบนโต๊ะ ไม่ใช่แค่เรา** ไพ่ "9 แต้มไม่มีคู่" ที่แทบชนะเสมอในกติกาพื้นฐาน กลายเป็นแค่มือกลางๆ ในกติกาแจก 6 ทิ้ง 3 เพราะคนกว่าครึ่งโต๊ะจะได้เรียงหรือสีขึ้นไป ตารางเกณฑ์หมอบที่คำนวณจากกติกาหนึ่ง เอาไปใช้กับอีกกติกาหนึ่งจะให้คำแนะนำที่ผิด
+สรุป: ยิ่งได้เลือกไพ่จากใบที่มากขึ้น การกระจายความใหญ่ของมือทั้งกระดาน**ขยับขึ้นสำหรับทุกคนบนโต๊ะ ไม่ใช่แค่เรา** ไพ่ 9 แต้มที่แข็งในกติกาพื้นฐานจะอ่อนลงมากในกติกาแจก 6 ทิ้ง 3 เพราะคนกว่าครึ่งโต๊ะจะได้เรียงหรือสีขึ้นไป ตารางเกณฑ์หมอบที่คำนวณจากกติกาหนึ่ง เอาไปใช้กับอีกกติกาหนึ่งจะให้คำแนะนำที่ผิด
 
-**4.3 Equity แบบหลายคน (เฉพาะกติกาแจกพื้นฐาน ตัวอย่างบางมือ)**
+**5.3 Equity แบบหลายคนแยกตามวิธีแจก (ตัวอย่างบางมือ)**
 
-ต้นแบบ Monte Carlo แสดงความน่าจะเป็นชนะ/เสมอ ("equity") ของไพ่ตัวอย่างเทียบกับคู่ต่อสู้สุ่ม N คน (N = 2–9) เฉพาะกติกาแจกพื้นฐาน มีกราฟและรายละเอียดเต็มอยู่ในบทสนทนางานวิจัยนี้แล้ว ไม่ขอย่อซ้ำที่นี่ สรุปสั้นๆ: ไพ่กลุ่มแรง (เซียน, เรียง) equity ยังเกิน ~88% แม้เจอ 9 คน ส่วนไพ่กลุ่มแต้มร่วงเร็วตามจำนวนคู่ต่อสู้ที่เพิ่ม และร่วงเร็วกว่าชัดเจนถ้าไม่มีคู่แม้แต้มรวมจะเท่ากัน — ยืนยันว่ากติกาคุมมีน้ำหนักจริงในทางปฏิบัติ ไม่ใช่แค่กฎตัดสินเสมอเฉยๆ
+ผลชุดใหม่รัน 1,000,000 รอบต่อมือและวิธีแจก โดยใช้ base seed `20260926` ใช้กติกาตัวคุมครบ และแบ่ง equity ตามจำนวนผู้ชนะที่เสมอกัน เมื่อเจอคู่ต่อสู้ 5 คน `A-K-8` (9 แต้มไม่มีคู่) มี equity 56.94% ใน baseline, 13.02% ในแจก 4 ทิ้ง 1, 0.79% ในแจก 5 ทิ้ง 2 และ 0.01% ในแจก 6 ทิ้ง 3 รายละเอียด win/tie/equity เต็มอยู่ใน `result_1M/`
 
 ### 6. สิ่งที่ยังค้างอยู่ / ขั้นตอนถัดไป
 
-- [ ] ขยาย simulation equity แบบหลายคน ให้รันแยกตามแต่ละกติกาการแจก (ไม่ใช่แค่ baseline) — ไพ่คู่ต่อสู้ต้องถูกสร้างผ่านกระบวนการทิ้งไพ่แบบเดียวกัน ไม่ใช่สุ่ม 3 ใบตรงๆ เหมือนเดิม
+- [x] รันต้นแบบ equity ของไพ่ตัวอย่างครบทั้งสี่วิธีแจกที่ไม่ใช้ไพ่กลางแล้ว
+- [ ] ขยายจากไพ่ตัวอย่าง 10 มือเป็นตารางความแข็งและเกณฑ์หมอบ/สู้แบบเต็ม
 - [ ] สร้างโมเดลกติกาแบบไพ่กองกลาง (2 ใบส่วนตัว + 3 ใบกลาง เลือกดีที่สุด 2+1) — โครงสร้างต่างออกไปเพราะไพ่แต่ละคน**สัมพันธ์กัน**ไม่เป็นอิสระเหมือนกติกาอื่น ต้องมีกรอบคิดแยกต่างหาก
 - [ ] แปลงตัวเลข equity เป็นตารางหมอบ/สู้จริง โดยใช้ pot odds กับกองกลาง (40) และช่วงเดิมพัน (20–60) ตามกติกาฐาน
-- [ ] เช็คกติกาที่ตั้งสมมติฐานไว้ (โดยเฉพาะลำดับไพ่ และตอง 3 vs ตอง A) กับวงเล่นจริง เพราะตอนสำรวจกติกาเจอความขัดแย้งกันหลายจุด
+- [ ] สรุปกติกาที่ยังเปิดอยู่ใน `RULES.md` โดยเฉพาะวิธีแจก ลำดับเดิมพัน และวิธีจัดการกรณีเสมอสนิทในการเล่นจริง
 - [ ] ทำ game theory เบื้องต้นเรื่องการเดิมพัน/บลัฟ โดยใช้ Kuhn Poker เป็นกรอบทฤษฎีอย่างง่ายเทียบเคียง
 
 ### 7. แหล่งข้อมูลที่ใช้ (ช่วงสำรวจกติกา)
