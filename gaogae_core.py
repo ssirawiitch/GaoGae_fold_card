@@ -17,8 +17,8 @@ chosen -- rules vary by house/region, this is one fixed, documented set):
   - Straights include A-2-3 (ace low) through Q-K-A (ace high), 12
     sequences total
   - Ace counts as 1 point only (never 10/11) in the Tam (point) category
-  - Within Tam: point total (0-9) is compared first, then a pair
-    ("kum"/คุม) wins ties, then the pair's rank breaks further ties
+  - Within Tam: point total (0-9) is compared first; for equal points,
+    a pair ("kum"/คุม) beats no pair, then pair/card ranks break ties
 
 This file is imported by gaogae_sim_baseline.py / gaogae_sim_discard1.py /
 gaogae_sim_discard2.py / gaogae_sim_discard3.py -- it is not meant to be
@@ -26,7 +26,7 @@ run directly.
 """
 
 import random
-from collections import Counter
+from functools import lru_cache
 from itertools import combinations
 
 ORDER = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K']
@@ -35,6 +35,11 @@ SUIT_SYMBOL = {'S': '\u2660', 'H': '\u2665', 'D': '\u2666', 'C': '\u2663'}
 RANK_HIGH_VAL = {'A': 14, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7,
                   '8': 8, '9': 9, '10': 10, 'J': 11, 'Q': 12, 'K': 13}
 COURT = {'J', 'Q', 'K'}
+CARD_INDEX = {
+    (rank, suit): rank_index * len(SUITS) + suit_index
+    for rank_index, rank in enumerate(ORDER)
+    for suit_index, suit in enumerate(SUITS)
+}
 
 # Category names: English description with the Thai term kept for reference,
 # since these are the actual names used at the table.
@@ -80,7 +85,22 @@ def classify(hand):
     tuple that can be compared directly with Python's > < == operators --
     a larger tuple means a stronger hand.
     """
+    if len(hand) != 3:
+        raise ValueError('A final Gao Gae hand must contain exactly 3 cards')
+    try:
+        canonical_hand = tuple(sorted(hand, key=CARD_INDEX.__getitem__))
+    except KeyError as exc:
+        raise ValueError('Hand contains an invalid card') from exc
+    if len(set(canonical_hand)) != 3:
+        raise ValueError('A hand cannot contain duplicate physical cards')
+    return _classify_cached(canonical_hand)
+
+
+@lru_cache(maxsize=None)
+def _classify_cached(hand):
+    """Classify a validated, canonically ordered hand."""
     ranks = [c[0] for c in hand]
+
     suitset = set(c[1] for c in hand)
     rankset = set(ranks)
     is_flush = len(suitset) == 1
@@ -98,9 +118,7 @@ def classify(hand):
     if is_all_court:
         if fr == frozenset(['J', 'Q', 'K']):
             return (4, 1, 0, 0)  # Sian Riang - top sub-rank within Sian
-        cnt = Counter(ranks)
-        pair_rank = [r for r, c in cnt.items() if c == 2][0]
-        kicker = [r for r, c in cnt.items() if c == 1][0]
+        pair_rank, kicker = _pair_and_kicker(ranks)
         return (4, 0, RANK_HIGH_VAL[pair_rank], RANK_HIGH_VAL[kicker])
 
     if is_straight:
@@ -110,13 +128,24 @@ def classify(hand):
         sr = sorted([RANK_HIGH_VAL[r] for r in ranks], reverse=True)
         return (2, sr[0], sr[1], sr[2])
 
-    # Tam (point total): compare points first, then pair ("kum")
+    # Tam (point total): compare points first, then control cards ("kum").
+    # A pair beats no pair. Within either group, compare physical card ranks
+    # high-to-low; A is high for this tiebreak even though it is worth 1 point.
     pts = sum(point_value(r) for r in ranks) % 10
-    cnt = Counter(ranks)
-    pairs = [r for r, c in cnt.items() if c == 2]
-    if pairs:
-        return (1, pts, 1, RANK_HIGH_VAL[pairs[0]])
-    return (1, pts, 0, 0)
+    if len(rankset) == 2:
+        pair_rank, kicker = _pair_and_kicker(ranks)
+        return (1, pts, 1, RANK_HIGH_VAL[pair_rank], RANK_HIGH_VAL[kicker])
+    high_cards = sorted((RANK_HIGH_VAL[r] for r in ranks), reverse=True)
+    return (1, pts, 0, *high_cards)
+
+
+def _pair_and_kicker(ranks):
+    """Return (pair_rank, kicker_rank) for a three-card one-pair hand."""
+    if ranks[0] == ranks[1]:
+        return ranks[0], ranks[2]
+    if ranks[0] == ranks[2]:
+        return ranks[0], ranks[1]
+    return ranks[1], ranks[0]
 
 
 def best_subset(cards, k=3):
@@ -134,6 +163,22 @@ def best_subset(cards, k=3):
     return best
 
 
+def showdown_share(my_cat, opponent_cats):
+    """Return (outcome, pot_share) against a completed set of opponents.
+
+    ``outcome`` is ``'win'``, ``'tie'``, or ``'loss'``. Exact top-ranked
+    ties split the pot equally among all tied winners, so a three-way tie
+    returns a share of 1/3 rather than the old fixed 1/2 approximation.
+    """
+    best_opp = max(opponent_cats)
+    if my_cat > best_opp:
+        return 'win', 1.0
+    if my_cat < best_opp:
+        return 'loss', 0.0
+    tied_opponents = sum(cat == my_cat for cat in opponent_cats)
+    return 'tie', 1.0 / (tied_opponents + 1)
+
+
 def simulate_equity(my_hand, opponent_deal_size, max_opponents=9, trials=60000, seed=None):
     """
     Simulate the equity of my_hand (your final, already-decided 3-card
@@ -147,36 +192,45 @@ def simulate_equity(my_hand, opponent_deal_size, max_opponents=9, trials=60000, 
         5 = deal 5, discard 2
         6 = deal 6, discard 3
 
-    Modeling assumption: my_hand is removed from the deck as exactly 3
-    known cards (the cards actually discarded, if any, are treated as
-    unknown/unseen and left in the pool available to opponents, since in
-    practice no one at the table knows what was discarded).
+    Modeling assumption: my_hand is a fixed, already-selected final hand.
+    In discard variants, the identities of your extra dealt-and-discarded
+    cards are unknown to this benchmark and are marginalized over the
+    undealt cards. Opponents still select their best 3 cards optimally.
 
-    Deck-size constraint: for a large opponent_deal_size (e.g. 6), the
-    maximum number of opponents that can physically be dealt from the 49
-    remaining cards is automatically capped (this function returns
-    effective_max_opponents so the caller knows how many opponents were
-    actually simulated).
+    Deck-size constraint: the hero and every opponent receive the same
+    number of cards. For a large opponent_deal_size (e.g. 6), the number of
+    opponents is capped using the full 52-card deal (this function returns
+    effective_max_opponents so the caller knows how many were simulated).
 
     Returns: (results, effective_max_opponents)
       results = {n: {'win_pct':.., 'tie_pct':.., 'equity_pct':..}, ...}
     """
-    if seed is not None:
-        random.seed(seed)
+    if opponent_deal_size < 3:
+        raise ValueError('opponent_deal_size must be at least 3')
+    if max_opponents < 2:
+        raise ValueError('max_opponents must be at least 2')
+    if trials <= 0:
+        raise ValueError('trials must be positive')
+
+    rng = random.Random(seed)
 
     full_deck = build_deck()
     remaining_base = [c for c in full_deck if c not in my_hand]
     my_cat = classify(my_hand)
 
-    # Cap opponent count based on how many cards are actually available
-    effective_max = min(max_opponents, len(remaining_base) // opponent_deal_size)
+    # Every player, including the hero, receives opponent_deal_size cards.
+    # This matters for deal-6: one deck supports 8 total players, hence no
+    # more than 7 opponents (not the 8 allowed by the old 49 // 6 formula).
+    physical_max_opponents = (len(full_deck) // opponent_deal_size) - 1
+    effective_max = min(max_opponents, physical_max_opponents)
 
     wins = {n: 0 for n in range(2, effective_max + 1)}
     ties = {n: 0 for n in range(2, effective_max + 1)}
+    equity_sums = {n: 0.0 for n in range(2, effective_max + 1)}
 
     for _ in range(trials):
         deck = remaining_base[:]
-        random.shuffle(deck)
+        rng.shuffle(deck)
         opp_cats = []
         idx = 0
         for _opp in range(effective_max):
@@ -184,12 +238,22 @@ def simulate_equity(my_hand, opponent_deal_size, max_opponents=9, trials=60000, 
             idx += opponent_deal_size
             opp_cats.append(best_subset(block, 3))
 
-        for n in range(2, effective_max + 1):
-            best_opp = max(opp_cats[:n])
-            if my_cat > best_opp:
-                wins[n] += 1
-            elif my_cat == best_opp:
+        higher_seen = False
+        tied_opponents = 0
+        for n, opp_cat in enumerate(opp_cats, start=1):
+            if opp_cat > my_cat:
+                higher_seen = True
+            elif opp_cat == my_cat:
+                tied_opponents += 1
+
+            if n < 2 or higher_seen:
+                continue
+            if tied_opponents:
                 ties[n] += 1
+                equity_sums[n] += 1.0 / (tied_opponents + 1)
+            else:
+                wins[n] += 1
+                equity_sums[n] += 1.0
 
     results = {}
     for n in range(2, effective_max + 1):
@@ -197,7 +261,7 @@ def simulate_equity(my_hand, opponent_deal_size, max_opponents=9, trials=60000, 
         results[n] = {
             'win_pct': w / trials * 100,
             'tie_pct': t / trials * 100,
-            'equity_pct': (w + t * 0.5) / trials * 100,
+            'equity_pct': equity_sums[n] / trials * 100,
         }
     return results, effective_max
 
@@ -219,20 +283,48 @@ EXAMPLE_HANDS = {
 }
 
 
+def _simulate_hand_job(job):
+    """Worker entry point used by print_and_save_table."""
+    index, name, hand, opponent_deal_size, max_opponents, trials, seed = job
+    hand_seed = None if seed is None else seed + index
+    results, effective_max = simulate_equity(
+        hand,
+        opponent_deal_size,
+        max_opponents=max_opponents,
+        trials=trials,
+        seed=hand_seed,
+    )
+    return name, hand, results, effective_max, hand_seed
+
+
 def print_and_save_table(variant_name, opponent_deal_size, csv_path,
-                          trials=60000, max_opponents=9):
+                          trials=60000, max_opponents=9, seed=20260926,
+                          workers=1):
     """Run every hand in EXAMPLE_HANDS, print a results table, and save a CSV."""
     import csv as csv_module
 
+    if workers < 1:
+        raise ValueError('workers must be at least 1')
+
     print(f"=== {variant_name} (opponents dealt {opponent_deal_size} card(s) each, "
-          f"trials={trials:,}) ===\n")
+          f"trials={trials:,}, seed={seed}, workers={workers}) ===\n", flush=True)
 
     all_rows = []
     header_n = None
 
-    for name, hand in EXAMPLE_HANDS.items():
-        res, eff_max = simulate_equity(hand, opponent_deal_size,
-                                        max_opponents=max_opponents, trials=trials)
+    jobs = [
+        (index, name, hand, opponent_deal_size, max_opponents, trials, seed)
+        for index, (name, hand) in enumerate(EXAMPLE_HANDS.items())
+    ]
+    if workers == 1:
+        completed = map(_simulate_hand_job, jobs)
+    else:
+        from concurrent.futures import ProcessPoolExecutor
+
+        executor = ProcessPoolExecutor(max_workers=workers)
+        completed = executor.map(_simulate_hand_job, jobs)
+
+    for name, hand, res, eff_max, hand_seed in completed:
         if eff_max < max_opponents and header_n is None:
             print(f"[NOTE] With {opponent_deal_size} card(s) dealt per opponent, only "
                   f"{eff_max} opponents can actually be dealt from the remaining deck "
@@ -246,9 +338,16 @@ def print_and_save_table(variant_name, opponent_deal_size, csv_path,
             print('-' * len(header))
 
         row_txt = f"{name:<32}" + ''.join(f"{res[n]['equity_pct']:>9.1f}%" for n in opp_ns)
-        print(row_txt)
+        print(row_txt, flush=True)
 
-        row = {'hand': name, 'hand_cards': hand_str(hand)}
+        row = {
+            'variant': variant_name,
+            'opponent_deal_size': opponent_deal_size,
+            'trials': trials,
+            'seed': hand_seed,
+            'hand': name,
+            'hand_cards': hand_str(hand),
+        }
         for n in opp_ns:
             row[f'equity_vs_{n}'] = round(res[n]['equity_pct'], 2)
             row[f'win_vs_{n}'] = round(res[n]['win_pct'], 2)
@@ -261,4 +360,7 @@ def print_and_save_table(variant_name, opponent_deal_size, csv_path,
             writer = csv_module.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
             writer.writerows(all_rows)
-        print(f"\nDetailed results saved to: {csv_path}") 
+        print(f"\nDetailed results saved to: {csv_path}")
+
+    if workers != 1:
+        executor.shutdown()
