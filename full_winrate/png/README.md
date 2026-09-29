@@ -1,32 +1,26 @@
-# PNG exports
+# PNG exports สำหรับบทความ
 
-- `winrate_summary_6_players.png` — quick one-page comparison.
-- `winrate_<variant>_page_01.png`, `_page_02.png`, and so on — complete tables
-  for `baseline`, `discard1`, `discard2`, and `discard3` when they require more
-  than one page.
+โฟลเดอร์นี้เก็บรูปตาราง Win% ที่สร้างจาก CSV ชุดเดิม โดยแบ่งตารางเต็มเป็นรูปละไม่เกิน 100 แถว เพื่อให้ตัวอักษรอ่านได้ชัดกว่าเดิมเมื่อนำไปวางในบทความ รูปแบบเดิมที่มีได้ถึง 500 แถวต่อภาพถูกแทนที่แล้ว
 
-Every PNG contains at most 500 data rows, keeping its height within practical
-browser screenshot limits. Page counts can change when the strength catalogue
-or simulation output changes, so they are intentionally not hard-coded here.
+## รายการไฟล์ปัจจุบัน
 
-Rows distinguish the confirmed control suit when it affects the winner:
-**♠ > ♥ > ♦ > ♣** after category, rank, and other control comparisons are
-equal. Non-control suits that cannot affect the result may be averaged into the
-same row. This rule produces one live winner, so the displayed strict Win% is
-also showdown equity; there is no tie split.
+| เนื้อหา | จำนวนไฟล์ | ช่วงชื่อไฟล์ | จำนวนแถวต่อรูป |
+|---|---:|---|---:|
+| ตารางสรุปผู้เล่น 6 คน | 1 | `winrate_summary_6_players.png` | 8 มืออ้างอิง |
+| d3 ไพ่สุดท้าย 3 ใบ | 30 | `winrate_baseline_page_01.png`–`winrate_baseline_page_30.png` | ไม่เกิน 100 |
+| d4 แจก 4 ทิ้ง 1 | 24 | `winrate_discard1_page_01.png`–`winrate_discard1_page_24.png` | ไม่เกิน 100 |
+| d5 แจก 5 ทิ้ง 2 | 21 | `winrate_discard2_page_01.png`–`winrate_discard2_page_21.png` | ไม่เกิน 100 |
+| d6 แจก 6 ทิ้ง 3 | 19 | `winrate_discard3_page_01.png`–`winrate_discard3_page_19.png` | ไม่เกิน 100 |
+| **รวม** | **95** | 1 รูปสรุป + 94 รูปตารางเต็ม | — |
 
-Regenerate the checked-in full tables and summary with:
+รูปตารางปกติมีขนาด 1,400 × 3,664 พิกเซลหรือต่ำกว่า ส่วนหน้าสุดท้ายอาจสั้นกว่าเพราะมีข้อมูลไม่ครบ 100 แถว การแบ่งนี้ทำให้รูปเดิมที่มี 500 แถวถูกแยกเป็นประมาณ 5 รูป โดยทุกส่วนสร้างใหม่จากตารางและมีหัวคอลัมน์ของตนเอง ไม่ใช่การครอปภาพเดิม
 
-```bash
-python3 export_winrate_png.py
-```
+แถวในตารางแยกดอกตัวคุมเมื่อมีผลต่อผู้ชนะ โดยใช้ **♠ > ♥ > ♦ > ♣** หลังเปรียบเทียบหมวด อันดับ และตัวคุมอื่นครบแล้ว ไพ่ดอกอื่นที่ไม่เปลี่ยนผลการตัดสินอาจถูกรวมอยู่ในแถวเดียวกัน
 
-Category-only PNGs duplicate subsets of the full tables, so they are not kept
-in the project by default. Generate them temporarily when useful with:
+สร้างไฟล์ชุดปัจจุบันใหม่ด้วย:
 
 ```bash
-python3 export_winrate_png.py --mode categories
+python3 -B export_winrate_png.py --mode full
 ```
 
-Use `--mode all` to generate both sets. The exporter removes stale PNGs in the
-selected export scope before writing the new page set.
+ตัวส่งออกจะลบ PNG ตารางชุดเก่าในขอบเขตที่เลือกก่อนสร้างชุดใหม่ จึงไม่ควรมีไฟล์หน้ารุ่น 500 แถวปะปนอยู่
