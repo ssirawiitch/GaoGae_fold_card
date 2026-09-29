@@ -1,7 +1,7 @@
-"""Build full final-hand win-rate tables for the four Gao Gae deal rules.
+"""Build full final-hand win-rate tables for four modeled 9-Bets deal sizes.
 
 The simulation deals a complete six-player table.  Every player keeps the
-best three cards allowed by the selected deal rule.  For each resulting hand
+best three cards allowed by the selected modeled deal size.  For each resulting hand
 strength, it estimates the probability of beating 2, 3, 4, or 5 randomly
 selected opponents (3--6 total players).
 
@@ -9,7 +9,7 @@ Only an outright win is counted.  The confirmed control-suit rule
 (Spades > Hearts > Diamonds > Clubs) makes an exact tie impossible between
 physical hands that can coexist at showdown.
 
-Outputs, for each deal rule:
+Outputs, for each modeled deal size:
   * a CSV with one row per distinct final-hand strength; and
   * a colour-coded HTML table containing the same win percentages.
 
@@ -38,7 +38,7 @@ from gaogae_core import (
 
 
 VARIANTS = (
-    ('baseline', 'Baseline: deal 3 / deal 2+1 (no discard)', 3),
+    ('baseline', 'd3 final three cards (showdown-only): deal 3 / deal 2+1', 3),
     ('discard1', 'Deal 4, discard 1', 4),
     ('discard2', 'Deal 5, discard 2', 5),
     ('discard3', 'Deal 6, discard 3', 6),
@@ -206,7 +206,7 @@ def simulate_variant(deal_size, rounds, seed, strength_by_mask, progress_every=0
 
 def result_rows(strengths, details, sample_counts, win_sums, rounds,
                 variant_key, variant_name, deal_size, seed, exact_counts):
-    """Create one row for each final strength reachable under this deal rule."""
+    """Create one row for each final strength reachable under this modeled deal size."""
     total_observations = rounds * 6
     total_deals = math.comb(52, deal_size)
     rows = []
@@ -290,7 +290,7 @@ def write_html(path, rows, variant_name, rounds, seed):
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Gao Gae win rate — {html.escape(variant_name)}</title>
+<title>9-Bets win rate — {html.escape(variant_name)}</title>
 <style>
   body {{ font: 14px/1.35 system-ui, sans-serif; margin: 24px; color: #172033; }}
   h1 {{ margin-bottom: 6px; }}
@@ -336,11 +336,11 @@ def write_index(path, generated):
     )
     document = f'''<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Gao Gae full win-rate tables</title>
+<title>9-Bets full win-rate tables</title>
 <style>body {{ font: 16px/1.5 system-ui,sans-serif; max-width: 850px;
 margin: 40px auto; padding: 0 20px; color: #172033; }} li {{ margin: 10px 0; }}</style>
-</head><body><h1>Gao Gae full final-hand win-rate tables</h1>
-<p>Choose a dealing rule. Each table shows strict Win% for 3–6 total players.</p>
+</head><body><h1>9-Bets full final-hand win-rate tables</h1>
+<p>Choose a modeled deal size. d3 combines deal 3 and deal 2+1 only for showdown-only results; betting and folding are excluded.</p>
 <ul>{links}</ul>
 <p><a href="png/winrate_summary_6_players.png">Quick comparison PNG (6 players)</a><br>
 <a href="png/README.md">Full-table PNG files and export options</a></p>
@@ -351,7 +351,7 @@ margin: 40px auto; padding: 0 20px; color: #172033; }} li {{ margin: 10px 0; }}<
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description='Generate full Gao Gae final-hand strict win-rate tables.'
+        description='Generate full 9-Bets final-hand strict win-rate tables for four modeled deal sizes.'
     )
     parser.add_argument('--rounds', type=int, default=10000000,
                         help='Six-player rounds per variant (default 10,000,000)')

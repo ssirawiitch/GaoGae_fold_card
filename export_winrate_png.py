@@ -1,4 +1,4 @@
-"""Render the generated Gao Gae HTML win-rate tables as paginated PNGs.
+"""Render the generated 9-Bets HTML win-rate tables as paginated PNGs.
 
 This uses an installed Chrome/Chromium browser in headless mode, so the PNG
 looks the same as the colour-coded HTML table and no plotting package is
@@ -294,7 +294,7 @@ def write_summary_html(path, all_rows):
 
     document = f'''<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Gao Gae Win% quick comparison</title>
+<title>9-Bets Win% quick comparison</title>
 <style>
 body {{ font: 18px/1.4 system-ui,sans-serif; margin: 38px; color: #172033; }}
 h1 {{ margin: 0 0 8px; }} p {{ color: #475569; margin: 0 0 24px; }}
@@ -305,7 +305,7 @@ td:first-child {{ font-weight: 650; }}
 td.pct {{ text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }}
 td.missing {{ background:#e5e7eb; text-align:center; }}
 </style></head><body>
-<h1>Gao Gae strict Win% — quick comparison</h1>
+<h1>9-Bets strict Win% — quick comparison</h1>
 <p>Six total players. Control suits resolve otherwise equal hands. Full tables
 include 3–6 players.</p>
 <table><thead><tr><th>Final hand</th>{header}</tr></thead>
@@ -315,7 +315,7 @@ include 3–6 players.</p>
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description='Save the four generated Gao Gae win-rate tables as PNG.'
+        description='Save the four generated 9-Bets win-rate tables as PNG.'
     )
     parser.add_argument('--input-dir', default=str(PROJECT_DIR / 'full_winrate'),
                         help='Directory containing generated HTML/CSV tables')
