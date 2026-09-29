@@ -11,7 +11,7 @@ Run after ``gaogae_full_winrate.py``:
 By default it writes paginated full-table images and one quick comparison
 image to ``full_winrate/png/``. Category-only images remain available through
 ``--mode categories`` but are omitted by default because they duplicate rows
-already present in the full tables. Tables longer than 500 rows are split to
+already present in the full tables. Tables longer than 100 rows are split to
 stay below browser screenshot-height limits.
 """
 
@@ -60,7 +60,7 @@ STATIC_BROWSER_CANDIDATES = (
     '/usr/bin/chromium',
     '/usr/bin/chromium-browser',
 )
-MAX_ROWS_PER_PAGE = 500
+MAX_ROWS_PER_PAGE = 100
 TABLE_ROW_HEIGHT = 34
 TABLE_EXTRA_HEIGHT = 230
 
